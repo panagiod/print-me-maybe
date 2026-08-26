@@ -30,6 +30,8 @@ else
   git -C "$APP_DIR" pull --ff-only
 fi
 
+git config --system --add safe.directory "$APP_DIR"
+
 python3 -m venv "$APP_DIR/.venv"
 "$APP_DIR/.venv/bin/pip" install --upgrade pip
 "$APP_DIR/.venv/bin/pip" install -r "$APP_DIR/requirements.txt"
