@@ -29,6 +29,8 @@ Work through these issues in order:
 
 ## Contents
 
+- [Purpose](#purpose)
+- [Next steps](#next-steps)
 - [What this project is](#what-this-project-is)
 - [Go live (cheapest stack)](#go-live-cheapest-stack)
 - [Features](#features)
