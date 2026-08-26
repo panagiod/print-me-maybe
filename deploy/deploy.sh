@@ -11,14 +11,14 @@ if [ ! -d "$APP_DIR/.git" ]; then
 fi
 
 cd "$APP_DIR"
-git fetch origin main
-git reset --hard origin/main
+sudo -u eshop git -C "$APP_DIR" fetch origin main
+sudo -u eshop git -C "$APP_DIR" reset --hard origin/main
 
-"$APP_DIR/.venv/bin/pip" install -q -r requirements.txt
+sudo -u eshop "$APP_DIR/.venv/bin/pip" install -q -r requirements.txt
 
 cp "$APP_DIR/deploy/eshop.service" /etc/systemd/system/eshop.service
 cp "$APP_DIR/deploy/Caddyfile" /etc/caddy/Caddyfile
-chmod 750 "$APP_DIR/deploy/backup.sh" || true
+chmod 750 "$APP_DIR/deploy/backup.sh" "$APP_DIR/deploy/deploy.sh" || true
 
 chown -R eshop:eshop "$APP_DIR" /var/lib/eshop
 
@@ -28,4 +28,4 @@ systemctl reload caddy 2>/dev/null || systemctl restart caddy
 
 curl -sf http://127.0.0.1:8000/health
 echo
-echo "Deploy OK ($(git rev-parse --short HEAD))"
+echo "Deploy OK ($(sudo -u eshop git -C "$APP_DIR" rev-parse --short HEAD))"

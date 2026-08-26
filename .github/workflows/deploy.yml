@@ -25,4 +25,6 @@ jobs:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          script: bash /opt/eshop/deploy/deploy.sh
+          script: |
+            git config --system --add safe.directory /opt/eshop
+            bash /opt/eshop/deploy/deploy.sh
