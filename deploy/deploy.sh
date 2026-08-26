@@ -31,7 +31,14 @@ chown -R eshop:eshop "$APP_DIR" /var/lib/eshop
 
 systemctl daemon-reload
 systemctl restart eshop
-systemctl reload caddy 2>/dev/null || systemctl restart caddy
+systemctl reload caddy 2>/dev/null || systemctl restart caddy 2>/dev/null || echo "WARN: caddy not running (OK before DNS/HTTPS)" >&2
+
+if ! systemctl is-active --quiet eshop; then
+  echo "eshop service is not active:" >&2
+  systemctl --no-pager status eshop || true
+  journalctl -u eshop -n 40 --no-pager || true
+  exit 1
+fi
 
 for _ in 1 2 3 4 5; do
   if curl -sf http://127.0.0.1:8000/health; then
