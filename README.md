@@ -13,13 +13,13 @@ The two repos share the same Python app but serve different hosts. **Do not merg
 
 **Why Hetzner?** Orders and product photos live on disk (`/var/lib/eshop`) instead of ephemeral `/tmp` on Render Free. Fixed cost is about **€8/month** (CX23 + VAT) + **~$11/year** for a domain. Stripe charges **1.5% + €0.25** on EEA cards with no monthly fee.
 
-**Status:** application code and `deploy/` scripts are ready. **Go-live work is tracked in [GitHub Issues](https://github.com/panagiod/print-me-maybe/issues).**
+**Status:** application code and `deploy/` scripts are ready. **Domain:** `print-me-maybe.com` (registered). **Go-live work:** [GitHub Issues](https://github.com/panagiod/print-me-maybe/issues).
 
 ## Next steps
 
 Work through these issues in order:
 
-1. [#8 Buy a domain](https://github.com/panagiod/print-me-maybe/issues/8)
+1. ~~[#8 Buy a domain](https://github.com/panagiod/print-me-maybe/issues/8)~~ — **done:** `print-me-maybe.com`
 2. [#7 Provision Hetzner CX23 VPS](https://github.com/panagiod/print-me-maybe/issues/7)
 3. [#3 Point DNS at the Hetzner server](https://github.com/panagiod/print-me-maybe/issues/3)
 4. [#5 Deploy the shop on the VPS](https://github.com/panagiod/print-me-maybe/issues/5)
@@ -60,24 +60,24 @@ Custom names/files still go over **Instagram DM**.
 
 Track progress in [Issues](https://github.com/panagiod/print-me-maybe/issues). Summary:
 
-1. **Domain** — [#8](https://github.com/panagiod/print-me-maybe/issues/8) Cloudflare Registrar, e.g. `printmemaybe.com` (~$11/year).
+1. **Domain** — **done:** `print-me-maybe.com` ([#8](https://github.com/panagiod/print-me-maybe/issues/8))
 2. **Server** — [#7](https://github.com/panagiod/print-me-maybe/issues/7) [Hetzner Cloud](https://www.hetzner.com/cloud) **CX23**, Falkenstein or Helsinki, Ubuntu 24.04, IPv4. ~€5.49/month + EU VAT.
-3. **DNS** — [#3](https://github.com/panagiod/print-me-maybe/issues/3) A record `@` and `www` → the server IPv4. Wait until it resolves.
+3. **DNS** — [#3](https://github.com/panagiod/print-me-maybe/issues/3) A record `@` and `www` for `print-me-maybe.com` → the server IPv4. Wait until it resolves.
 4. **Install** — [#5](https://github.com/panagiod/print-me-maybe/issues/5) SSH as root:
 
    ```bash
    git clone https://github.com/panagiod/print-me-maybe.git /opt/eshop
    sudo bash /opt/eshop/deploy/install.sh
    nano /etc/eshop.env   # SHOP_URL, Stripe, Resend
-   nano /etc/caddy/Caddyfile   # your real domain
+   nano /etc/caddy/Caddyfile   # already set to print-me-maybe.com in repo
    systemctl restart eshop
    systemctl reload caddy
    ```
 
    `install.sh` generates `SESSION_SECRET` and `ADMIN_PASSWORD` and prints the admin password once. Caddy gets HTTPS automatically after DNS points at the server.
 5. **Stripe** — [#6](https://github.com/panagiod/print-me-maybe/issues/6) [dashboard.stripe.com](https://dashboard.stripe.com) → activate payments, EUR, copy the **secret** key (`sk_live_…` or `sk_test_…` for a dry run) into `STRIPE_SECRET_KEY`. Checkout redirects to Stripe and only creates the order after `payment_status=paid`.
-6. **Resend** — [#2](https://github.com/panagiod/print-me-maybe/issues/2) [resend.com/domains](https://resend.com/domains) → add **your** domain (not `onrender.com`) → paste DNS records → wait for **Verified** → set `RESEND_FROM=Print Me Maybe <orders@your-domain>`.
-7. **Smoke test** — [#4](https://github.com/panagiod/print-me-maybe/issues/4) Check `https://your-domain/health` — `"payments": true`, `"persistent": true`. Place a **test** card order (`ACCT-000015`), reboot the VPS, confirm the order is still in studio.
+6. **Resend** — [#2](https://github.com/panagiod/print-me-maybe/issues/2) [resend.com/domains](https://resend.com/domains) → add `print-me-maybe.com` (not `onrender.com`) → paste DNS records → wait for **Verified** → set `RESEND_FROM=Print Me Maybe <orders@print-me-maybe.com>`.
+7. **Smoke test** — [#4](https://github.com/panagiod/print-me-maybe/issues/4) Check `https://print-me-maybe.com/health` — `"payments": true`, `"persistent": true`. Place a **test** card order (`ACCT-000015`), reboot the VPS, confirm the order is still in studio.
 
 Until `STRIPE_SECRET_KEY` is set, checkout stays a no-card demo (same as the Render shop).
 
@@ -215,22 +215,19 @@ These names are not yours. Verification will fail:
 - `resend.dev` / `example.com` / `beth.t@example.com` — Resend shared test sender
 - `@print.me.maybe` — Instagram, not a domain
 
-A domain is a name you **buy**, such as `printmemaybe.com`. Mail then sends as `orders@printmemaybe.com` and can still land in Outlook.
+A domain is a name you **buy** — this project uses **`print-me-maybe.com`**. Mail will send as `orders@print-me-maybe.com` and can still land in Outlook.
 
-### When you have bought a domain
+### Resend setup for `print-me-maybe.com`
 
-Replace `printmemaybe.com` with the name you bought.
-
-1. Buy a domain (Cloudflare Registrar is usually cheapest for `.com`).
-2. [resend.com/domains](https://resend.com/domains) → **Add Domain** → `printmemaybe.com` (no `https://`).
-3. Copy every DNS record Resend shows (TXT / MX) into Cloudflare DNS. Save. Do not skip rows.
-4. Wait until Resend shows **Verified**.
-5. On the server, set `RESEND_FROM` to `Print Me Maybe <orders@printmemaybe.com>` in `/etc/eshop.env`.
-6. Confirm `NOTIFY_EMAIL` is `dimitrioupanagiotis@outlook.com`.
-7. `systemctl restart eshop`
-8. Studio **Orders** → **Send test email**.
-9. Resend **Emails → Sending** and **Logs** (not **Receiving**): **Delivered**, not 403.
-10. Outlook: search Inbox, Junk, Other, Focused. Mark Not junk the first time.
+1. [resend.com/domains](https://resend.com/domains) → **Add Domain** → `print-me-maybe.com` (no `https://`).
+2. Copy every DNS record Resend shows (TXT / MX) into your DNS provider. Save. Do not skip rows.
+3. Wait until Resend shows **Verified**.
+4. On the server, set `RESEND_FROM` to `Print Me Maybe <orders@print-me-maybe.com>` in `/etc/eshop.env`.
+5. Confirm `NOTIFY_EMAIL` is `dimitrioupanagiotis@outlook.com`.
+6. `systemctl restart eshop`
+7. Studio **Orders** → **Send test email**.
+8. Resend **Emails → Sending** and **Logs** (not **Receiving**): **Delivered**, not 403.
+9. Outlook: search Inbox, Junk, Other, Focused. Mark Not junk the first time.
 
 Attack alerts (blocked studio login or checkout flood) email at most once per hour per type.
 
