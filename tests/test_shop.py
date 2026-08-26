@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 from src.db import get_connection, init_schema
 from src.main import app
-from src.models import INTERNATIONAL_SHIPPING_CENTS, order_total_cents, shipping_cents
+from src.models import CYPRUS_SHIPPING_CENTS, INTERNATIONAL_SHIPPING_CENTS, order_total_cents, shipping_cents
 from src.seed import seed_products
 from src.store import list_all_products
 
@@ -74,8 +74,9 @@ def test_category_filter() -> None:
 
 def test_shipping_calculation() -> None:
     assert shipping_cents("pickup") == 0
-    assert shipping_cents("delivery", "cyprus") == 0
+    assert shipping_cents("delivery", "cyprus") == CYPRUS_SHIPPING_CENTS
     assert shipping_cents("delivery", "other") == INTERNATIONAL_SHIPPING_CENTS
+    assert order_total_cents(400, "delivery", "cyprus") == 400 + CYPRUS_SHIPPING_CENTS
     assert order_total_cents(400, "delivery", "other") == 400 + INTERNATIONAL_SHIPPING_CENTS
 
 
@@ -150,6 +151,31 @@ def test_pickup_checkout_is_free() -> None:
     )
     assert checkout.status_code == 200
     assert f"€{subtotal / 100:.2f}" in checkout.text
+
+
+def test_cyprus_delivery_charges_standard_shipping() -> None:
+    init_schema()
+    seed_products()
+
+    client = TestClient(app)
+    products = client.get("/api/products").json()
+    glasses = next(p for p in products if p["slug"] == "glasses-case")
+    total = glasses["price_cents"] + CYPRUS_SHIPPING_CENTS
+
+    client.post("/cart/add", data={"product_id": glasses["id"], "quantity": 1})
+    checkout = client.post(
+        "/checkout",
+        data={
+            "customer_name": "Cyprus Customer",
+            "customer_email": "cyprus@example.com",
+            "shipping_method": "delivery",
+            "delivery_country": "cyprus",
+            "shipping_address": "12 Engine St, Nicosia",
+        },
+    )
+    assert checkout.status_code == 200
+    assert f"€{total / 100:.2f}" in checkout.text
+    assert "€3.50" in checkout.text
 
 
 def test_admin_requires_login() -> None:

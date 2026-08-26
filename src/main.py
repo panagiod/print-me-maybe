@@ -117,6 +117,17 @@ def normalize_delivery_country(raw: str | None) -> str:
     return country
 
 
+def shipping_display_ctx() -> dict[str, int | str]:
+    cyprus = shipping_cents("delivery", "cyprus")
+    international = shipping_cents("delivery", "other")
+    return {
+        "cyprus_shipping_cents": cyprus,
+        "cyprus_shipping_display": format_money(cyprus),
+        "international_shipping_cents": international,
+        "international_shipping_display": format_money(international),
+    }
+
+
 @app.get("/health")
 def health() -> dict[str, str | bool]:
     """Liveness plus whether THIS process can send mail (no secrets)."""
@@ -254,10 +265,7 @@ def checkout_page(request: Request) -> Any:
             "cart_count": cart_count(cart),
             "shop_name": shop_name(),
             "payments_on": payments_configured(),
-            "international_shipping_display": format_money(
-                shipping_cents("delivery", "other")
-            ),
-            "international_shipping_cents": shipping_cents("delivery", "other"),
+            **shipping_display_ctx(),
             **totals,
         },
     )
@@ -286,8 +294,7 @@ def checkout_submit(
         "cart_count": cart_count(cart),
         "shop_name": shop_name(),
         "payments_on": payments_configured(),
-        "international_shipping_display": format_money(shipping_cents("delivery", "other")),
-        "international_shipping_cents": shipping_cents("delivery", "other"),
+        **shipping_display_ctx(),
         "form_customer_name": name,
         "form_customer_email": email,
         "form_shipping_address": address,

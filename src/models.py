@@ -15,6 +15,7 @@ ORDER_STATUS_LABELS = {
     "cancelled": "Cancelled",
 }
 
+CYPRUS_SHIPPING_CENTS = 350
 INTERNATIONAL_SHIPPING_CENTS = 1000
 SHIPPING_METHODS = ("pickup", "delivery")
 DELIVERY_COUNTRIES = ("cyprus", "other")
@@ -27,12 +28,12 @@ def format_money(cents: int) -> str:
 
 
 def shipping_cents(shipping_method: str, delivery_country: str | None = None) -> int:
-    """Shipping is chosen at checkout: pick-up is free; Cyprus delivery is free; outside Cyprus is €10."""
+    """Shipping is chosen at checkout: pick-up is free; Cyprus delivery is €3.50; outside Cyprus is €10."""
     if shipping_method == "pickup":
         return 0
     if delivery_country == "other":
         return INTERNATIONAL_SHIPPING_CENTS
-    return 0
+    return CYPRUS_SHIPPING_CENTS
 
 
 def order_total_cents(subtotal_cents: int, shipping_method: str, delivery_country: str | None = None) -> int:

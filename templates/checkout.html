@@ -45,7 +45,7 @@
         Destination
         <select name="delivery_country" id="delivery-country">
           <option value="cyprus" {% if form_delivery_country|default('cyprus') == 'cyprus' %}selected{% endif %}>
-            Cyprus (free shipping)
+            Cyprus ({{ cyprus_shipping_display }})
           </option>
           <option value="other" {% if form_delivery_country == 'other' %}selected{% endif %}>
             Outside Cyprus ({{ international_shipping_display }})
@@ -110,6 +110,7 @@
   const shippingDisplay = document.getElementById("shipping-display");
   const totalDisplay = document.getElementById("total-display");
   const subtotalCents = {{ subtotal_cents }};
+  const cyprusCents = {{ cyprus_shipping_cents }};
   const internationalCents = {{ international_shipping_cents }};
 
   function selectedMethod() {
@@ -119,7 +120,7 @@
 
   function shippingCents() {
     if (selectedMethod() === "pickup") return 0;
-    return deliveryCountry.value === "other" ? internationalCents : 0;
+    return deliveryCountry.value === "other" ? internationalCents : cyprusCents;
   }
 
   function formatMoney(cents) {
