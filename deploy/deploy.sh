@@ -10,9 +10,16 @@ if [ ! -d "$APP_DIR/.git" ]; then
   exit 1
 fi
 
+git config --system --add safe.directory "$APP_DIR" 2>/dev/null || true
+
 cd "$APP_DIR"
 sudo -u eshop git -C "$APP_DIR" fetch origin main
 sudo -u eshop git -C "$APP_DIR" reset --hard origin/main
+
+if [ ! -x "$APP_DIR/.venv/bin/uvicorn" ]; then
+  echo "No venv yet — running install.sh"
+  bash "$APP_DIR/deploy/install.sh"
+fi
 
 sudo -u eshop "$APP_DIR/.venv/bin/pip" install -q -r requirements.txt
 
@@ -26,6 +33,16 @@ systemctl daemon-reload
 systemctl restart eshop
 systemctl reload caddy 2>/dev/null || systemctl restart caddy
 
-curl -sf http://127.0.0.1:8000/health
-echo
-echo "Deploy OK ($(sudo -u eshop git -C "$APP_DIR" rev-parse --short HEAD))"
+for _ in 1 2 3 4 5; do
+  if curl -sf http://127.0.0.1:8000/health; then
+    echo
+    echo "Deploy OK ($(sudo -u eshop git -C "$APP_DIR" rev-parse --short HEAD))"
+    exit 0
+  fi
+  sleep 2
+done
+
+echo "Health check failed — eshop service logs:" >&2
+systemctl --no-pager status eshop || true
+journalctl -u eshop -n 40 --no-pager || true
+exit 1
