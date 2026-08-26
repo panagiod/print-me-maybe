@@ -33,6 +33,7 @@ Work through these issues in order:
 - [Next steps](#next-steps)
 - [What this project is](#what-this-project-is)
 - [Go live (cheapest stack)](#go-live-cheapest-stack)
+- [Buy a Hetzner CX23 server](#buy-a-hetzner-cx23-server)
 - [Features](#features)
 - [Stack](#stack)
 - [Repository layout](#repository-layout)
@@ -61,7 +62,7 @@ Custom names/files still go over **Instagram DM**.
 Track progress in [Issues](https://github.com/panagiod/print-me-maybe/issues). Summary:
 
 1. **Domain** — **done:** `print-me-maybe.com` ([#8](https://github.com/panagiod/print-me-maybe/issues/8))
-2. **Server** — [#7](https://github.com/panagiod/print-me-maybe/issues/7) [Hetzner Cloud](https://www.hetzner.com/cloud) **CX23**, Falkenstein or Helsinki, Ubuntu 24.04, IPv4. ~€5.49/month + EU VAT.
+2. **Server** — [#7](https://github.com/panagiod/print-me-maybe/issues/7) Hetzner Cloud **CX23** — see [Buy a Hetzner CX23 server](#buy-a-hetzner-cx23-server) below.
 3. **DNS** — [#3](https://github.com/panagiod/print-me-maybe/issues/3) A record `@` and `www` for `print-me-maybe.com` → the server IPv4. Wait until it resolves.
 4. **Install** — [#5](https://github.com/panagiod/print-me-maybe/issues/5) SSH as root:
 
@@ -80,6 +81,56 @@ Track progress in [Issues](https://github.com/panagiod/print-me-maybe/issues). S
 7. **Smoke test** — [#4](https://github.com/panagiod/print-me-maybe/issues/4) Check `https://print-me-maybe.com/health` — `"payments": true`, `"persistent": true`. Place a **test** card order (`ACCT-000015`), reboot the VPS, confirm the order is still in studio.
 
 Until `STRIPE_SECRET_KEY` is set, checkout stays a no-card demo (same as the Render shop).
+
+## Buy a Hetzner CX23 server
+
+Tracked as [#7](https://github.com/panagiod/print-me-maybe/issues/7). You want **Hetzner Cloud** (VPS), not “Robot” dedicated servers.
+
+| Item | Choice |
+|------|--------|
+| Sign up | https://www.hetzner.com/cloud → **Console** at https://console.hetzner.cloud |
+| Plan | **CX23** (Shared vCPU) — ~€5.49/month + VAT |
+| OS | **Ubuntu 24.04** |
+| Location | **Falkenstein** or **Helsinki** |
+| Access | **SSH key** (recommended) or root password emailed by Hetzner |
+
+### 1. Account and project
+
+1. Create a Hetzner account and add a **payment method**.
+2. In the console, **New project** → e.g. `print-me-maybe`.
+
+### 2. SSH key (before creating the server)
+
+On your laptop:
+
+```bash
+ssh-keygen -t ed25519 -C "print-me-maybe" -f ~/.ssh/print-me-maybe
+cat ~/.ssh/print-me-maybe.pub
+```
+
+In the console: **Security** → **SSH keys** → **Add SSH key** → paste the `.pub` line.
+
+### 3. Create the server
+
+**Servers** → **Add Server**:
+
+1. **Location** — Falkenstein (`fsn1`) or Helsinki (`hel1`)
+2. **Image** — Ubuntu **24.04**
+3. **Type** — **Shared vCPU** tab → **CX23**
+4. **Networking** — keep **Public IPv4** on (needed for `print-me-maybe.com`)
+5. **SSH keys** — select your key
+6. **Name** — e.g. `print-me-maybe`
+7. **Create & Buy now**
+
+### 4. Connect and save the IP
+
+Copy the server **IPv4** from the overview page, then:
+
+```bash
+ssh -i ~/.ssh/print-me-maybe root@YOUR_SERVER_IPV4
+```
+
+Use that IPv4 in [#3 DNS](https://github.com/panagiod/print-me-maybe/issues/3), then continue with [#5 deploy](https://github.com/panagiod/print-me-maybe/issues/5).
 
 ## Features
 
