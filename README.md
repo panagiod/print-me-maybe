@@ -1,12 +1,31 @@
 # Print Me Maybe (Hetzner)
 
-Cheap, persistent copy of the Print Me Maybe shop: **Hetzner VPS + your domain + Stripe Checkout + Resend**.
+**Production deployment** of the [Print Me Maybe](https://www.instagram.com/print.me.maybe/) shop on a cheap Hetzner VPS with persistent storage, your own domain, Stripe Checkout, and Resend order emails.
 
-The **current Render shop is unchanged** at [github.com/panagiod/eshop](https://github.com/panagiod/eshop) (`main`, live [print-me-maybe.onrender.com](https://print-me-maybe.onrender.com)). Do not merge this tree into that `main` branch.
+## Purpose
 
-This tree is meant to become **https://github.com/panagiod/print-me-maybe** (create that empty public repo with no README, then push this code as `main` there).
+| | |
+|---|---|
+| **This repo** | [panagiod/print-me-maybe](https://github.com/panagiod/print-me-maybe) — Hetzner VPS, persistent disk, real card payments |
+| **Not this repo** | [panagiod/eshop](https://github.com/panagiod/eshop) (`main`) — free Render demo at [print-me-maybe.onrender.com](https://print-me-maybe.onrender.com) |
 
-**Fixed cost:** about **€8/month** (Hetzner CX23 + VAT) + **~$11/year** domain. Cards: Stripe **1.5% + €0.25** on EEA cards, **no monthly Stripe fee**.
+The two repos share the same Python app but serve different hosts. **Do not merge this tree into `eshop` `main`** — the Render shop stays as-is.
+
+**Why Hetzner?** Orders and product photos live on disk (`/var/lib/eshop`) instead of ephemeral `/tmp` on Render Free. Fixed cost is about **€8/month** (CX23 + VAT) + **~$11/year** for a domain. Stripe charges **1.5% + €0.25** on EEA cards with no monthly fee.
+
+**Status:** application code and `deploy/` scripts are ready. **Go-live work is tracked in [GitHub Issues](https://github.com/panagiod/print-me-maybe/issues).**
+
+## Next steps
+
+Work through these issues in order:
+
+1. [#8 Buy a domain](https://github.com/panagiod/print-me-maybe/issues/8)
+2. [#7 Provision Hetzner CX23 VPS](https://github.com/panagiod/print-me-maybe/issues/7)
+3. [#3 Point DNS at the Hetzner server](https://github.com/panagiod/print-me-maybe/issues/3)
+4. [#5 Deploy the shop on the VPS](https://github.com/panagiod/print-me-maybe/issues/5)
+5. [#6 Connect Stripe Checkout](https://github.com/panagiod/print-me-maybe/issues/6)
+6. [#2 Verify domain in Resend and configure order emails](https://github.com/panagiod/print-me-maybe/issues/2)
+7. [#4 Smoke test: paid order survives a reboot](https://github.com/panagiod/print-me-maybe/issues/4)
 
 ## Contents
 
@@ -37,11 +56,12 @@ Custom names/files still go over **Instagram DM**.
 
 ## Go live (cheapest stack)
 
-1. **GitHub** — create empty public repo **panagiod/print-me-maybe** (no README, no license). Push this code as `main`.
-2. **Domain** — Cloudflare Registrar, e.g. `printmemaybe.com` (~$11/year).
-3. **Server** — [Hetzner Cloud](https://www.hetzner.com/cloud) **CX23**, location Falkenstein or Helsinki, Ubuntu 24.04, with an IPv4 address. ~€5.49/month + EU VAT.
-4. **DNS** — A record `@` and `www` → the server IPv4. Wait until it resolves.
-5. **Install** (SSH as root):
+Track progress in [Issues](https://github.com/panagiod/print-me-maybe/issues). Summary:
+
+1. **Domain** — [#8](https://github.com/panagiod/print-me-maybe/issues/8) Cloudflare Registrar, e.g. `printmemaybe.com` (~$11/year).
+2. **Server** — [#7](https://github.com/panagiod/print-me-maybe/issues/7) [Hetzner Cloud](https://www.hetzner.com/cloud) **CX23**, Falkenstein or Helsinki, Ubuntu 24.04, IPv4. ~€5.49/month + EU VAT.
+3. **DNS** — [#3](https://github.com/panagiod/print-me-maybe/issues/3) A record `@` and `www` → the server IPv4. Wait until it resolves.
+4. **Install** — [#5](https://github.com/panagiod/print-me-maybe/issues/5) SSH as root:
 
    ```bash
    git clone https://github.com/panagiod/print-me-maybe.git /opt/eshop
@@ -53,9 +73,9 @@ Custom names/files still go over **Instagram DM**.
    ```
 
    `install.sh` generates `SESSION_SECRET` and `ADMIN_PASSWORD` and prints the admin password once. Caddy gets HTTPS automatically after DNS points at the server.
-6. **Stripe** — [dashboard.stripe.com](https://dashboard.stripe.com) → activate payments, EUR, copy the **secret** key (`sk_live_…` or `sk_test_…` for a dry run) into `STRIPE_SECRET_KEY`. Checkout redirects to Stripe and only creates the order after `payment_status=paid`.
-7. **Resend** — [resend.com/domains](https://resend.com/domains) → add **your** domain (not `onrender.com`) → paste DNS records → wait for **Verified** → set `RESEND_FROM=Print Me Maybe <orders@your-domain>`.
-8. Check `https://your-domain/health` — `"payments": true`, `"persistent": true`. Place a **test** card order (`ACCT-000015`), reboot the VPS, confirm the order is still in studio.
+5. **Stripe** — [#6](https://github.com/panagiod/print-me-maybe/issues/6) [dashboard.stripe.com](https://dashboard.stripe.com) → activate payments, EUR, copy the **secret** key (`sk_live_…` or `sk_test_…` for a dry run) into `STRIPE_SECRET_KEY`. Checkout redirects to Stripe and only creates the order after `payment_status=paid`.
+6. **Resend** — [#2](https://github.com/panagiod/print-me-maybe/issues/2) [resend.com/domains](https://resend.com/domains) → add **your** domain (not `onrender.com`) → paste DNS records → wait for **Verified** → set `RESEND_FROM=Print Me Maybe <orders@your-domain>`.
+7. **Smoke test** — [#4](https://github.com/panagiod/print-me-maybe/issues/4) Check `https://your-domain/health` — `"payments": true`, `"persistent": true`. Place a **test** card order (`ACCT-000015`), reboot the VPS, confirm the order is still in studio.
 
 Until `STRIPE_SECRET_KEY` is set, checkout stays a no-card demo (same as the Render shop).
 
