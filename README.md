@@ -34,6 +34,7 @@ Work through these issues in order:
 - [What this project is](#what-this-project-is)
 - [Go live (cheapest stack)](#go-live-cheapest-stack)
 - [Buy a Hetzner CX23 server](#buy-a-hetzner-cx23-server)
+- [Point DNS at the Hetzner server](#point-dns-at-the-hetzner-server)
 - [Features](#features)
 - [Stack](#stack)
 - [Repository layout](#repository-layout)
@@ -63,7 +64,7 @@ Track progress in [Issues](https://github.com/panagiod/print-me-maybe/issues). S
 
 1. **Domain** — **done:** `print-me-maybe.com` ([#8](https://github.com/panagiod/print-me-maybe/issues/8))
 2. **Server** — [#7](https://github.com/panagiod/print-me-maybe/issues/7) Hetzner Cloud **CX23** — see [Buy a Hetzner CX23 server](#buy-a-hetzner-cx23-server) below.
-3. **DNS** — [#3](https://github.com/panagiod/print-me-maybe/issues/3) A record `@` and `www` for `print-me-maybe.com` → the server IPv4. Wait until it resolves.
+3. **DNS** — [#3](https://github.com/panagiod/print-me-maybe/issues/3) — see [Point DNS at the Hetzner server](#point-dns-at-the-hetzner-server) below.
 4. **Install** — [#5](https://github.com/panagiod/print-me-maybe/issues/5) SSH as root:
 
    ```bash
@@ -131,6 +132,61 @@ ssh -i ~/.ssh/print-me-maybe root@YOUR_SERVER_IPV4
 ```
 
 Use that IPv4 in [#3 DNS](https://github.com/panagiod/print-me-maybe/issues/3), then continue with [#5 deploy](https://github.com/panagiod/print-me-maybe/issues/5).
+
+## Point DNS at the Hetzner server
+
+Tracked as [#3](https://github.com/panagiod/print-me-maybe/issues/3). This tells the internet that **print-me-maybe.com** should reach your Hetzner box.
+
+**You need first:** the server **IPv4** from [#7](https://github.com/panagiod/print-me-maybe/issues/7) (e.g. `95.xxx.xxx.xxx`).
+
+### What to add
+
+Two **A records** — both point at the same Hetzner IPv4:
+
+| Type | Name / Host | Value | TTL |
+|------|-------------|-------|-----|
+| A | `@` (or `print-me-maybe.com`) | your Hetzner IPv4 | Auto / 300 |
+| A | `www` | same IPv4 | Auto / 300 |
+
+- **A** = IPv4 address (not AAAA — that is IPv6; optional later).
+- **`@`** = the bare domain `print-me-maybe.com`.
+- **`www`** = `www.print-me-maybe.com`.
+
+Leave **IPv6 on** at Hetzner if you want; these A records are still required for most visitors.
+
+### Cloudflare (if you bought the domain there)
+
+1. Log in at https://dash.cloudflare.com
+2. Click **print-me-maybe.com**
+3. Left sidebar → **DNS** → **Records**
+4. **Add record** → Type **A**, Name **@**, IPv4 address = Hetzner IP → **Proxy status: DNS only** (grey cloud, not orange) → Save
+5. **Add record** → Type **A**, Name **www**, same IP → **DNS only** → Save
+
+**Why grey cloud (DNS only)?** Caddy on the VPS talks to Let's Encrypt directly. Orange-cloud proxy works too but needs extra Cloudflare SSL settings — grey cloud is the simple path for this setup.
+
+### Other DNS providers
+
+Same two A records in wherever you manage DNS (registrar panel, Cloudflare, etc.). Names may differ slightly:
+
+- **Name `@`** might appear as `print-me-maybe.com`, blank, or “root”.
+- **Name `www`** is usually just `www`.
+
+### Check it worked
+
+On your laptop (may take a few minutes to propagate):
+
+```bash
+dig print-me-maybe.com +short
+dig www.print-me-maybe.com +short
+```
+
+Both commands should print your **Hetzner IPv4**. If they show nothing or a wrong IP, wait 5–15 minutes and try again.
+
+### What happens next
+
+Once DNS resolves, continue [#5 Deploy the shop](https://github.com/panagiod/print-me-maybe/issues/5). After `install.sh` and `systemctl reload caddy`, Caddy will fetch HTTPS certificates automatically for `print-me-maybe.com` and `www.print-me-maybe.com`.
+
+Resend TXT/MX records for email ([#2](https://github.com/panagiod/print-me-maybe/issues/2)) go in the **same** DNS panel later — they do not replace these A records.
 
 ## Features
 
