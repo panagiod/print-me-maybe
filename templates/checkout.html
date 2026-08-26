@@ -10,22 +10,54 @@
 {% endif %}
 
 <div class="checkout-layout">
-  <form action="/checkout" method="post" class="checkout-form">
+  <form action="/checkout" method="post" class="checkout-form" id="checkout-form">
     <fieldset>
-      <legend>Shipping details</legend>
+      <legend>Your details</legend>
       <label>
         Full name
-        <input type="text" name="customer_name" required autocomplete="name">
+        <input type="text" name="customer_name" required autocomplete="name" value="{{ form_customer_name or '' }}">
       </label>
       <label>
         Email
-        <input type="email" name="customer_email" required autocomplete="email">
+        <input type="email" name="customer_email" required autocomplete="email" value="{{ form_customer_email or '' }}">
+      </label>
+    </fieldset>
+
+    <fieldset>
+      <legend>Delivery</legend>
+      <div class="shipping-options">
+        <label class="shipping-option">
+          <input type="radio" name="shipping_method" value="pickup" required
+            {% if form_shipping_method|default('pickup') == 'pickup' %}checked{% endif %}>
+          Pick up at studio <span class="free-badge">Free</span>
+        </label>
+        <label class="shipping-option">
+          <input type="radio" name="shipping_method" value="delivery" required
+            {% if form_shipping_method == 'delivery' %}checked{% endif %}>
+          Delivery
+        </label>
+      </div>
+    </fieldset>
+
+    <fieldset id="delivery-fields" class="{% if form_shipping_method|default('pickup') != 'delivery' %}is-hidden{% endif %}">
+      <legend>Delivery address</legend>
+      <label>
+        Destination
+        <select name="delivery_country" id="delivery-country">
+          <option value="cyprus" {% if form_delivery_country|default('cyprus') == 'cyprus' %}selected{% endif %}>
+            Cyprus (free shipping)
+          </option>
+          <option value="other" {% if form_delivery_country == 'other' %}selected{% endif %}>
+            Outside Cyprus ({{ international_shipping_display }})
+          </option>
+        </select>
       </label>
       <label>
         Address
-        <textarea name="shipping_address" rows="3" required autocomplete="street-address"></textarea>
+        <textarea name="shipping_address" rows="3" autocomplete="street-address" id="shipping-address">{{ form_shipping_address or '' }}</textarea>
       </label>
     </fieldset>
+
     <p class="checkout-note">
       {% if payments_on %}
       You will pay by card on Stripe’s page (EEA cards typically 1.5% + €0.25, paid by the shop). Custom names, photos, or files: DM @print.me.maybe or @lasercraft.27.
@@ -53,7 +85,7 @@
       </div>
       <div class="totals-row">
         <dt>Shipping</dt>
-        <dd>
+        <dd id="shipping-display">
           {% if shipping_cents == 0 %}
           <span class="free-badge">Free</span>
           {% else %}
@@ -63,9 +95,56 @@
       </div>
       <div class="totals-row totals-row-total">
         <dt>Total</dt>
-        <dd><strong>{{ format_money(total_cents) }}</strong></dd>
+        <dd id="total-display"><strong>{{ format_money(total_cents) }}</strong></dd>
       </div>
     </dl>
   </aside>
 </div>
+
+<script>
+(function () {
+  const form = document.getElementById("checkout-form");
+  const deliveryFields = document.getElementById("delivery-fields");
+  const deliveryCountry = document.getElementById("delivery-country");
+  const shippingAddress = document.getElementById("shipping-address");
+  const shippingDisplay = document.getElementById("shipping-display");
+  const totalDisplay = document.getElementById("total-display");
+  const subtotalCents = {{ subtotal_cents }};
+  const internationalCents = {{ international_shipping_cents }};
+
+  function selectedMethod() {
+    const checked = form.querySelector('input[name="shipping_method"]:checked');
+    return checked ? checked.value : "pickup";
+  }
+
+  function shippingCents() {
+    if (selectedMethod() === "pickup") return 0;
+    return deliveryCountry.value === "other" ? internationalCents : 0;
+  }
+
+  function formatMoney(cents) {
+    return "€" + (cents / 100).toFixed(2);
+  }
+
+  function updateTotals() {
+    const method = selectedMethod();
+    const isDelivery = method === "delivery";
+    deliveryFields.classList.toggle("is-hidden", !isDelivery);
+    shippingAddress.required = isDelivery;
+    const ship = shippingCents();
+    if (ship === 0) {
+      shippingDisplay.innerHTML = '<span class="free-badge">Free</span>';
+    } else {
+      shippingDisplay.textContent = formatMoney(ship);
+    }
+    totalDisplay.innerHTML = "<strong>" + formatMoney(subtotalCents + ship) + "</strong>";
+  }
+
+  form.querySelectorAll('input[name="shipping_method"]').forEach((el) => {
+    el.addEventListener("change", updateTotals);
+  });
+  deliveryCountry.addEventListener("change", updateTotals);
+  updateTotals();
+})();
+</script>
 {% endblock %}

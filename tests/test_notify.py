@@ -177,6 +177,8 @@ def test_checkout_emails_studio(monkeypatch) -> None:
         data={
             "customer_name": "Ada Lovelace",
             "customer_email": "ada@example.com",
+            "shipping_method": "delivery",
+            "delivery_country": "cyprus",
             "shipping_address": "12 Engine St",
         },
     )

@@ -63,6 +63,9 @@ def create_checkout_session(
     customer_name: str,
     customer_email: str,
     shipping_address: str,
+    shipping_method: str,
+    delivery_country: str,
+    shipping_cents: int,
     origin: str,
 ) -> str:
     """Return the hosted Stripe Checkout URL. Amounts are in EUR cents."""
@@ -75,6 +78,9 @@ def create_checkout_session(
         "metadata[customer_name]": customer_name[:500],
         "metadata[customer_email]": customer_email[:200],
         "metadata[shipping_address]": shipping_address[:500],
+        "metadata[shipping_method]": shipping_method[:50],
+        "metadata[delivery_country]": delivery_country[:50],
+        "metadata[shipping_cents]": str(shipping_cents),
         "metadata[total_cents]": str(total_cents),
         "metadata[cart]": cart_snapshot(lines)[:500],
     }

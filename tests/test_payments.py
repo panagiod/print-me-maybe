@@ -33,6 +33,8 @@ def test_checkout_without_stripe_still_places_order(tmp_path, monkeypatch) -> No
         data={
             "customer_name": "Ada Lovelace",
             "customer_email": "ada@example.com",
+            "shipping_method": "delivery",
+            "delivery_country": "cyprus",
             "shipping_address": "12 Engine St",
         },
     )
@@ -74,6 +76,8 @@ def test_checkout_with_stripe_redirects(tmp_path, monkeypatch) -> None:
         data={
             "customer_name": "Ada Lovelace",
             "customer_email": "ada@example.com",
+            "shipping_method": "delivery",
+            "delivery_country": "cyprus",
             "shipping_address": "12 Engine St",
         },
         follow_redirects=False,
@@ -101,6 +105,10 @@ def test_pay_success_rejects_unpaid_session(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr("src.payments.urllib.request.urlopen", boom)
     client = _client(monkeypatch, tmp_path)
     monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_dummy")
+    result = client.get("/pay/success?session_id=cs_bad")
+    assert result.status_code == 400
+
+
 def test_pay_success_creates_paid_order_from_metadata(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_dummy")
     client = _client(monkeypatch, tmp_path)
@@ -110,13 +118,16 @@ def test_pay_success_creates_paid_order_from_metadata(tmp_path, monkeypatch) -> 
     payload = {
         "id": "cs_test_paid",
         "payment_status": "paid",
-        "amount_total": 750,
+        "amount_total": 400,
         "currency": "eur",
         "metadata": {
             "customer_name": "Ada Lovelace",
             "customer_email": "ada@example.com",
             "shipping_address": "12 Engine St",
-            "total_cents": "750",
+            "shipping_method": "pickup",
+            "delivery_country": "",
+            "shipping_cents": "0",
+            "total_cents": "400",
             "cart": json.dumps([[glasses["id"], 1]], separators=(",", ":")),
         },
     }

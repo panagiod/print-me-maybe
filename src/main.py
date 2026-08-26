@@ -15,7 +15,13 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from src.admin import router as admin_router
 from src.db import data_persistent, init_schema, product_images_dir
-from src.models import FREE_SHIPPING_THRESHOLD_CENTS, format_money, order_total_cents, shipping_cents
+from src.models import (
+    DELIVERY_COUNTRIES,
+    PICKUP_ADDRESS_LABEL,
+    SHIPPING_METHODS,
+    format_money,
+    shipping_cents,
+)
 from src.ratelimit import RateLimitMiddleware
 from src.security import SecurityHeadersMiddleware, require_production_secrets, session_https_only, session_secret
 from src.seed import seed_products
@@ -57,7 +63,6 @@ app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 templates.env.globals["format_money"] = format_money
-templates.env.globals["free_shipping_threshold"] = format_money(FREE_SHIPPING_THRESHOLD_CENTS)
 app.include_router(admin_router)
 
 
@@ -81,15 +86,35 @@ def shop_name() -> str:
     return os.environ.get("SHOP_NAME", "Print Me Maybe")
 
 
-def checkout_totals(lines: list) -> dict[str, int]:
+def checkout_totals(
+    lines: list,
+    shipping_method: str = "pickup",
+    delivery_country: str | None = "cyprus",
+) -> dict[str, int]:
     """Shared subtotal, shipping, and total for cart and checkout views."""
     subtotal = cart_total_cents(lines)
-    shipping = shipping_cents(subtotal)
+    shipping = shipping_cents(shipping_method, delivery_country)
     return {
         "subtotal_cents": subtotal,
         "shipping_cents": shipping,
-        "total_cents": order_total_cents(subtotal),
+        "total_cents": subtotal + shipping,
+        "shipping_method": shipping_method,
+        "delivery_country": delivery_country,
     }
+
+
+def normalize_shipping_method(raw: str) -> str:
+    method = (raw or "").strip().lower()
+    if method not in SHIPPING_METHODS:
+        raise ValueError("Choose pick up or delivery")
+    return method
+
+
+def normalize_delivery_country(raw: str | None) -> str:
+    country = (raw or "").strip().lower()
+    if country not in DELIVERY_COUNTRIES:
+        raise ValueError("Choose Cyprus or outside Cyprus for delivery")
+    return country
 
 
 @app.get("/health")
@@ -199,7 +224,7 @@ def cart_update(request: Request, product_id: int = Form(...), quantity: int = F
 def cart_page(request: Request) -> Any:
     cart = get_cart(request)
     lines = build_cart_lines(cart)
-    totals = checkout_totals(lines)
+    totals = checkout_totals(lines, shipping_method="pickup")
     return templates.TemplateResponse(
         request,
         "cart.html",
@@ -207,7 +232,8 @@ def cart_page(request: Request) -> Any:
             "lines": lines,
             "cart_count": cart_count(cart),
             "shop_name": shop_name(),
-            **totals,
+            "subtotal_cents": totals["subtotal_cents"],
+            "shipping_at_checkout": True,
         },
     )
 
@@ -228,6 +254,10 @@ def checkout_page(request: Request) -> Any:
             "cart_count": cart_count(cart),
             "shop_name": shop_name(),
             "payments_on": payments_configured(),
+            "international_shipping_display": format_money(
+                shipping_cents("delivery", "other")
+            ),
+            "international_shipping_cents": shipping_cents("delivery", "other"),
             **totals,
         },
     )
@@ -238,18 +268,53 @@ def checkout_submit(
     request: Request,
     customer_name: str = Form(...),
     customer_email: str = Form(...),
-    shipping_address: str = Form(...),
+    shipping_method: str = Form(...),
+    delivery_country: str = Form("cyprus"),
+    shipping_address: str = Form(""),
 ) -> Any:
     cart = get_cart(request)
     lines = build_cart_lines(cart)
     if not lines:
         return RedirectResponse(url="/cart", status_code=303)
 
-    totals = checkout_totals(lines)
-
     name = customer_name.strip()
     email = customer_email.strip()
     address = shipping_address.strip()
+
+    checkout_ctx = {
+        "lines": lines,
+        "cart_count": cart_count(cart),
+        "shop_name": shop_name(),
+        "payments_on": payments_configured(),
+        "international_shipping_display": format_money(shipping_cents("delivery", "other")),
+        "international_shipping_cents": shipping_cents("delivery", "other"),
+        "form_customer_name": name,
+        "form_customer_email": email,
+        "form_shipping_address": address,
+    }
+
+    try:
+        method = normalize_shipping_method(shipping_method)
+        country = normalize_delivery_country(delivery_country) if method == "delivery" else None
+        if method == "delivery" and not address:
+            raise ValueError("Enter a delivery address")
+        if method == "pickup":
+            address = PICKUP_ADDRESS_LABEL
+        totals = checkout_totals(lines, shipping_method=method, delivery_country=country)
+    except ValueError as exc:
+        totals = checkout_totals(lines)
+        return templates.TemplateResponse(
+            request,
+            "checkout.html",
+            {
+                **checkout_ctx,
+                "error": str(exc),
+                "form_shipping_method": shipping_method,
+                "form_delivery_country": delivery_country,
+                **totals,
+            },
+            status_code=400,
+        )
 
     if payments_configured():
         try:
@@ -259,6 +324,9 @@ def checkout_submit(
                 customer_name=name,
                 customer_email=email,
                 shipping_address=address,
+                shipping_method=method,
+                delivery_country=country or "",
+                shipping_cents=totals["shipping_cents"],
                 origin=str(request.base_url).rstrip("/"),
             )
         except Exception as exc:
@@ -266,11 +334,10 @@ def checkout_submit(
                 request,
                 "checkout.html",
                 {
-                    "lines": lines,
-                    "cart_count": cart_count(cart),
-                    "shop_name": shop_name(),
-                    "payments_on": True,
+                    **checkout_ctx,
                     "error": str(exc),
+                    "form_shipping_method": method,
+                    "form_delivery_country": country or delivery_country,
                     **totals,
                 },
                 status_code=400,
@@ -283,17 +350,18 @@ def checkout_submit(
             customer_email=email,
             shipping_address=address,
             lines=lines,
+            shipping_cents=totals["shipping_cents"],
         )
     except ValueError as exc:
         return templates.TemplateResponse(
             request,
             "checkout.html",
             {
-                "lines": lines,
-                "cart_count": cart_count(cart),
-                "shop_name": shop_name(),
+                **checkout_ctx,
                 "payments_on": False,
                 "error": str(exc),
+                "form_shipping_method": method,
+                "form_delivery_country": country or delivery_country,
                 **totals,
             },
             status_code=400,
@@ -360,7 +428,16 @@ def pay_success(request: Request, session_id: str = "") -> Any:
             status_code=400,
             detail="Could not rebuild the cart after payment. Contact the studio with your Stripe receipt.",
         )
-    totals = checkout_totals(lines)
+    method = str(meta.get("shipping_method") or "pickup").strip().lower()
+    if method not in SHIPPING_METHODS:
+        method = "pickup"
+    country_raw = str(meta.get("delivery_country") or "cyprus").strip().lower()
+    country = country_raw if country_raw in DELIVERY_COUNTRIES else "cyprus"
+    totals = checkout_totals(
+        lines,
+        shipping_method=method,
+        delivery_country=country if method == "delivery" else None,
+    )
     paid_amount = int(session.get("amount_total") or 0)
     expected = int(meta.get("total_cents") or totals["total_cents"])
     if paid_amount != expected:
@@ -370,8 +447,9 @@ def pay_success(request: Request, session_id: str = "") -> Any:
         order_id = place_order(
             customer_name=str(meta.get("customer_name") or "").strip() or "Customer",
             customer_email=str(meta.get("customer_email") or "").strip(),
-            shipping_address=str(meta.get("shipping_address") or "").strip(),
+            shipping_address=str(meta.get("shipping_address") or "").strip() or PICKUP_ADDRESS_LABEL,
             lines=lines,
+            shipping_cents=totals["shipping_cents"],
             paid=True,
         )
     except ValueError as exc:

@@ -552,6 +552,34 @@ img {
   font-weight: 600;
 }
 
+.is-hidden {
+  display: none;
+}
+
+.shipping-options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.shipping-option {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 500;
+}
+
+.shipping-option input {
+  width: auto;
+  min-height: 0;
+  margin: 0;
+}
+
+.shipping-pending {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
 .shipping-hint {
   color: var(--muted);
   font-size: 0.85rem;

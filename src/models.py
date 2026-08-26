@@ -15,8 +15,10 @@ ORDER_STATUS_LABELS = {
     "cancelled": "Cancelled",
 }
 
-FREE_SHIPPING_THRESHOLD_CENTS = 2500
-STANDARD_SHIPPING_CENTS = 350
+INTERNATIONAL_SHIPPING_CENTS = 1000
+SHIPPING_METHODS = ("pickup", "delivery")
+DELIVERY_COUNTRIES = ("cyprus", "other")
+PICKUP_ADDRESS_LABEL = "Pick up at studio"
 
 
 def format_money(cents: int) -> str:
@@ -24,16 +26,18 @@ def format_money(cents: int) -> str:
     return f"€{cents / 100:.2f}"
 
 
-def shipping_cents(subtotal_cents: int) -> int:
-    """Standard shipping unless the cart subtotal qualifies for free shipping."""
-    if subtotal_cents >= FREE_SHIPPING_THRESHOLD_CENTS:
+def shipping_cents(shipping_method: str, delivery_country: str | None = None) -> int:
+    """Shipping is chosen at checkout: pick-up is free; Cyprus delivery is free; outside Cyprus is €10."""
+    if shipping_method == "pickup":
         return 0
-    return STANDARD_SHIPPING_CENTS
+    if delivery_country == "other":
+        return INTERNATIONAL_SHIPPING_CENTS
+    return 0
 
 
-def order_total_cents(subtotal_cents: int) -> int:
-    """Subtotal plus shipping for checkout and order persistence."""
-    return subtotal_cents + shipping_cents(subtotal_cents)
+def order_total_cents(subtotal_cents: int, shipping_method: str, delivery_country: str | None = None) -> int:
+    """Subtotal plus checkout shipping for order persistence."""
+    return subtotal_cents + shipping_cents(shipping_method, delivery_country)
 
 
 @dataclass(frozen=True)
