@@ -11,7 +11,7 @@ from typing import Any
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
 from src.models import (
@@ -32,6 +32,7 @@ from src.notify import (
     send_test_email,
     should_email_shipped,
 )
+from src.pdf import packing_slip_filename, packing_slip_pdf_bytes
 from src.payments import refund_order_if_paid
 from src.ratelimit import client_ip
 from src.store import (
@@ -61,12 +62,13 @@ from src.store import (
     update_order_tracking,
     update_product,
 )
-from src.uploads import save_product_images
+from src.uploads import image_thumb_url, save_product_images
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 router = APIRouter(prefix="/admin")
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 templates.env.globals["format_money"] = format_money
+templates.env.filters["thumb"] = image_thumb_url
 logger = logging.getLogger(__name__)
 
 SHIPPING_FILTERS = ("pickup", "cyprus", "other")
@@ -84,6 +86,95 @@ MAIL_BANNERS = {
         "Order marked shipped. Add a tracking number to email the customer.",
     ),
 }
+
+
+def _is_htmx(request: Request) -> bool:
+    return request.headers.get("HX-Request", "").lower() == "true"
+
+
+def _stock_href(
+    *,
+    category: str | None = None,
+    q: str | None = None,
+    visibility: str | None = None,
+    added: bool = False,
+) -> str:
+    params: dict[str, str] = {}
+    if category:
+        params["category"] = category
+    if visibility:
+        params["visibility"] = visibility
+    needle = (q or "").strip()
+    if needle:
+        params["q"] = needle
+    if added:
+        params["added"] = "1"
+    qs = urlencode(params)
+    return "/admin/stock?" + qs if qs else "/admin/stock"
+
+
+def _stock_filters(
+    category: str | None = None,
+    q: str | None = None,
+    visibility: str | None = None,
+) -> dict[str, str | None]:
+    if visibility not in {None, "", "listed", "hidden"}:
+        visibility = None
+    if visibility == "":
+        visibility = None
+    if category and category not in CATEGORIES:
+        category = None
+    if category == "":
+        category = None
+    return {
+        "category": category,
+        "q": (q or "").strip(),
+        "visibility": visibility,
+    }
+
+
+def _stock_card_response(
+    request: Request,
+    product_id: int,
+    *,
+    category: str | None = None,
+    q: str | None = None,
+    visibility: str | None = None,
+) -> Any:
+    product = get_product(product_id)
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    filters = _stock_filters(category, q, visibility)
+    return templates.TemplateResponse(
+        request,
+        "admin_product_card.html",
+        _ctx(
+            request,
+            {
+                "product": product,
+                "search_q": filters["q"] or "",
+                "active_category": filters["category"],
+                "active_visibility": filters["visibility"],
+            },
+        ),
+    )
+
+
+def _stock_redirect(
+    *,
+    category: str | None = None,
+    q: str | None = None,
+    visibility: str | None = None,
+) -> RedirectResponse:
+    filters = _stock_filters(category, q, visibility)
+    return RedirectResponse(
+        url=_stock_href(
+            category=filters["category"],
+            q=filters["q"],
+            visibility=filters["visibility"],
+        ),
+        status_code=303,
+    )
 
 
 def public_origin(request: Request) -> str:
@@ -329,6 +420,32 @@ def order_print(request: Request, order_id: int) -> Any:
         request,
         "admin_order_print.html",
         _ctx(request, _order_view_extra(request, order)),
+    )
+
+
+@router.get("/orders/{order_id}/print.pdf")
+def order_print_pdf(request: Request, order_id: int) -> Any:
+    gate = require_admin(request)
+    if gate:
+        return gate
+    order = get_order(order_id)
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    html = templates.get_template("admin_order_pdf.html").render(
+        shop_name=shop_name(),
+        order=order,
+        format_money=format_money,
+    )
+    try:
+        pdf = packing_slip_pdf_bytes(html, str(BASE_DIR))
+    except Exception as exc:
+        logger.exception("Packing slip PDF failed for order %s", order_id)
+        raise HTTPException(status_code=500, detail="Could not build packing slip PDF") from exc
+    filename = packing_slip_filename(order)
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 
@@ -691,30 +808,57 @@ def stock_update(
     request: Request,
     product_id: int,
     stock: int = Form(...),
-) -> RedirectResponse:
+    category: str = Form(""),
+    q: str = Form(""),
+    visibility: str = Form(""),
+) -> Any:
     gate = require_admin(request)
     if gate:
         return gate
     set_product_stock(product_id, stock)
-    return RedirectResponse(url="/admin/stock", status_code=303)
+    if _is_htmx(request):
+        return _stock_card_response(
+            request, product_id, category=category, q=q, visibility=visibility
+        )
+    return _stock_redirect(category=category, q=q, visibility=visibility)
 
 
 @router.post("/products/{product_id}/hide")
-def product_hide(request: Request, product_id: int) -> RedirectResponse:
+def product_hide(
+    request: Request,
+    product_id: int,
+    category: str = Form(""),
+    q: str = Form(""),
+    visibility: str = Form(""),
+) -> Any:
     gate = require_admin(request)
     if gate:
         return gate
     set_product_hidden(product_id, True)
-    return RedirectResponse(url="/admin/stock", status_code=303)
+    if _is_htmx(request):
+        return _stock_card_response(
+            request, product_id, category=category, q=q, visibility=visibility
+        )
+    return _stock_redirect(category=category, q=q, visibility=visibility)
 
 
 @router.post("/products/{product_id}/show")
-def product_show(request: Request, product_id: int) -> RedirectResponse:
+def product_show(
+    request: Request,
+    product_id: int,
+    category: str = Form(""),
+    q: str = Form(""),
+    visibility: str = Form(""),
+) -> Any:
     gate = require_admin(request)
     if gate:
         return gate
     set_product_hidden(product_id, False)
-    return RedirectResponse(url="/admin/stock", status_code=303)
+    if _is_htmx(request):
+        return _stock_card_response(
+            request, product_id, category=category, q=q, visibility=visibility
+        )
+    return _stock_redirect(category=category, q=q, visibility=visibility)
 
 
 @router.post("/products/{product_id}/delete")

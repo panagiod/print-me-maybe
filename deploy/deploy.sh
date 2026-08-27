@@ -16,6 +16,11 @@ cd "$APP_DIR"
 sudo -u eshop git -C "$APP_DIR" fetch origin main
 sudo -u eshop git -C "$APP_DIR" reset --hard origin/main
 
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -qq
+apt-get install -y libpango-1.0-0 libcairo2 libgdk-pixbuf-2.0-0 libffi-dev \
+  shared-mime-info fonts-dejavu-core
+
 if [ ! -x "$APP_DIR/.venv/bin/uvicorn" ]; then
   echo "No venv yet — running install.sh"
   bash "$APP_DIR/deploy/install.sh"

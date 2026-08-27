@@ -1,5 +1,7 @@
 (function () {
-  document.addEventListener("submit", function (event) {
+  document.addEventListener(
+    "submit",
+    function (event) {
     const form = event.target;
     if (!(form instanceof HTMLFormElement)) return;
 
@@ -29,7 +31,9 @@
     if (confirmMessage && !window.confirm(confirmMessage)) {
       event.preventDefault();
     }
-  });
+  },
+    true
+  );
 
   document.querySelectorAll("[data-copy]").forEach(function (button) {
     button.addEventListener("click", function () {

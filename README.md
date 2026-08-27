@@ -205,7 +205,7 @@ Resend TXT/MX records for email ([#2](https://github.com/panagiod/print-me-maybe
 - Shipping chosen at checkout (see [Shipping](#shipping)): pick up free, Cyprus delivery €3.50, outside Cyprus €10
 - Checkout: name, email, phone (required for delivery), optional order notes, pick-up or delivery, then **Stripe Checkout** when `STRIPE_SECRET_KEY` is set
 - Customer order page at `/order/{unguessable-token}` — status, payment, tracking number, notes (times in Europe/Nicosia)
-- Studio at `/admin` (not linked in public nav): orders (search, shipping filters), tracking, customer/studio notes, copy customer link, resend mail, cash/bank paid, packing slip, cancel (Stripe refund + restock + customer email), catalog with photos, hide/show, add/edit/remove product + gallery
+- Studio at `/admin` (not linked in public nav): orders (search, shipping filters), tracking, customer/studio notes, copy customer link, resend mail, cash/bank paid, packing slip (print + PDF), cancel (Stripe refund + restock + customer email), catalog with photos, hide/show, add/edit/remove product + gallery
 - Emails via [Resend](https://resend.com): new order (studio + customer), ready to collect/pack, shipped (customer; delivery waits for tracking), cancelled (studio + customer), attack alerts
 - JSON catalog at `GET /api/products`
 - Liveness at `GET /health` (`mail`, `payments`, `persistent`)
@@ -214,7 +214,10 @@ Resend TXT/MX records for email ([#2](https://github.com/panagiod/print-me-maybe
 
 - **Python 3.12**, [FastAPI](https://fastapi.tiangolo.com/), Uvicorn
 - **Jinja2** HTML templates + `static/css`
-- **SQLite** under `DATA_DIR` (local default `/tmp/eshop-data`; production `/var/lib/eshop`)
+- **SQLite** under `DATA_DIR` (local default `/tmp/eshop-data`; production `/var/lib/eshop`), schema via **Alembic**
+- **Pillow** resizes studio photo uploads (display + catalog thumb)
+- **HTMX** (vendored) for in-place Stock qty / hide / show
+- **WeasyPrint** for packing-slip PDFs (needs cairo/pango on the VPS)
 - Signed **session cookies** for cart and studio login
 - GitHub Actions CI: pytest + smoke `curl` of `/health` and home
 
@@ -225,18 +228,20 @@ src/                 FastAPI app
   main.py            Storefront routes (home, product, cart, checkout, health)
   admin.py           Studio login, orders, tracking, stock, add/edit/remove product, gallery, packing slip, test email
   store.py           Products, cart lines, place_order, pending Stripe checkouts
-  db.py              SQLite schema and DATA_DIR
+  db.py              SQLite helpers and DATA_DIR
+  migrate.py         Alembic upgrade entry point
   models.py          Product/Order types, EUR formatting, shipping rules
   seed.py            Catalog copied from Instagram listings
-  uploads.py         Admin product photos (unique filenames, multi-file)
+  uploads.py         Admin product photos (resize, thumbs, unique filenames)
+  pdf.py             Packing-slip PDF via WeasyPrint
   payments.py        Stripe Checkout, webhooks, refunds
   fulfill.py         Paid Stripe session → order (idempotent)
   notify.py          Resend/SMTP mail, attack alerts, customer confirmation / shipped / cancelled
   ratelimit.py       Per-IP limits
   security.py        Secrets, HTTPS cookies, CSP/HSTS
-  uploads.py         Admin product photos
 templates/           HTML (base, shop, cart, checkout, admin)
-static/              CSS and seed product images
+static/              CSS, vendored HTMX, and seed product images
+alembic/             SQLite migrations
 tests/               pytest
 deploy/              Hetzner systemd unit, Caddyfile, install.sh, deploy.sh, env.example, backup.sh
 .github/workflows/ci.yml
@@ -264,9 +269,9 @@ SQLite and uploaded photos go to `DATA_DIR` (default `/tmp/eshop-data`).
 python3 -m pytest tests/ -v
 ```
 
-GitHub Actions (`.github/workflows/ci.yml`) runs on every pull request and on push to `main`: install deps, pytest, then boot Uvicorn and `curl` `/health` and `/`.
+GitHub Actions (`.github/workflows/ci.yml`) runs on every pull request and on push to `main`: install cairo/pango (WeasyPrint), pip deps, pytest, then boot Uvicorn and `curl` `/health` and `/`.
 
-Shop tests cover pick-up (free), Cyprus delivery (€3.50, phone required), international delivery (€10), checkout notes, studio product delete (including the block when a product has already been ordered), admin cancel (restock; Stripe refund when paid by card, not for cash), cash/bank mark-paid, ready and shipped emails, and shipping a tracking number to the customer order page.
+Shop tests cover pick-up (free), Cyprus delivery (€3.50, phone required), international delivery (€10), checkout notes, studio product delete (including the block when a product has already been ordered), admin cancel (restock; Stripe refund when paid by card, not for cash), cash/bank mark-paid, ready and shipped emails, shipping a tracking number to the customer order page, photo thumbs, Alembic upgrades from a legacy SQLite file, HTMX stock fragments, and packing-slip PDFs.
 
 ## CI/CD deployment
 
@@ -403,9 +408,10 @@ Public nav does not advertise `/admin`. Login: `/admin/login` on your domain (pr
 | Page | What it does |
 |------|----------------|
 | `/admin/orders` | Filter by status and shipping (pickup / Cyprus / outside Cyprus); search by number, name, email, or tracking; Paid / Unpaid / Refunded; **Send test email** |
-| `/admin/orders/{id}` | Status, **tracking number**, customer notes vs studio notes, phone (`tel:`), copy customer link, resend confirmation (and shipped email), **Mark as paid (cash/bank)**, print packing slip, Stripe session id, cancel (Stripe refund if card-paid, restock, email customer) / reopen (blocked if refunded) |
+| `/admin/orders/{id}` | Status, **tracking number**, customer notes vs studio notes, phone (`tel:`), copy customer link, resend confirmation (and shipped email), **Mark as paid (cash/bank)**, print packing slip, **download PDF**, Stripe session id, cancel (Stripe refund if card-paid, restock, email customer) / reopen (blocked if refunded) |
 | `/admin/orders/{id}/print` | Packing slip (print hides the admin chrome) |
-| `/admin/stock` | Catalog with **photos**, search, category and listed/hidden chips; qty; **Add product**; hide/show; **Remove** (confirm) |
+| `/admin/orders/{id}/print.pdf` | Same slip as a downloadable PDF |
+| `/admin/stock` | Catalog with **photos**, search, category and listed/hidden chips; qty / hide / show save in place; **Add product**; **Remove** (confirm) |
 | `/admin/products/new` | Add a product with photo preview (several photos allowed; first is the cover) |
 | `/admin/products/{id}/edit` | Name/price/copy/stock; **current photos**; add/remove/set cover; view in shop |
 
@@ -439,13 +445,17 @@ Studio **Stock** is a photo grid. Search by name, filter by line (3D / laser) or
 
 **Add a product.** `/admin/products/new` — name, description, price, category, stock, and one or more photos (preview before save). After save you return to Stock with an “added” banner.
 
-**Photos.** Edit shows the current gallery. The **cover** is the shop card and cart thumb; extra photos appear as a gallery on `/product/{slug}`. You can add files, **Make cover**, or **Remove** a photo. Files are stored uniquely under `DATA_DIR/product-images` (not overwritten as `{slug}.jpg`). JPG/PNG/WebP/GIF, 5 MB each.
+**Photos.** Edit shows the current gallery. The **cover** is the shop card and cart thumb; extra photos appear as a gallery on `/product/{slug}`. You can add files, **Make cover**, or **Remove** a photo. Uploads (JPG/PNG/WebP/GIF, 5 MB each) are stored uniquely under `DATA_DIR/product-images`. **Pillow** auto-rotates, strips EXIF, writes a display image (max 1600px) and a **thumb** (max 400px). Catalog cards, cart, and gallery thumbs use the thumb; the product page main image uses the display file.
 
-**Hide from shop.** **Hide** keeps the SKU and orders; it disappears from `/`, `/api/products`, and product URLs. **Show in shop** lists it again. Sold out (qty 0) is separate: the product page still exists but cannot be added to the cart.
+**Hide from shop.** **Hide** keeps the SKU and orders; it disappears from `/`, `/api/products`, and product URLs. **Show in shop** lists it again. Qty, Hide, and Show on Stock update that card **in place** (HTMX); without JavaScript they still POST and reload the page. Sold out (qty 0) is separate: the product page still exists but cannot be added to the cart.
 
 **Remove a product.** Each card has **Remove** (`POST /admin/products/{id}/delete`) and asks for confirm. Deletion is a hard delete. It is **blocked** if that product appears on any past order. In that case the studio sees that it cannot be deleted, plus **Hide from shop**. Setting stock to 0 still marks sold out without deleting history. Zero-stock and hidden cards are highlighted; sold-out and hidden sort after listed in-stock items.
 
 Uploaded photos are served from `/media/products/...` and stored under `DATA_DIR/product-images`.
+
+**Packing slip PDF.** From an order, **Print packing slip** still opens the HTML view. **Download PDF** saves `order-{id}-packing-slip.pdf` (same fields: customer, phone, address, method, tracking, notes, lines, totals). The VPS needs cairo/pango/fonts (`install.sh` and each `deploy.sh` install them).
+
+**Schema.** App boot runs Alembic against `DATA_DIR/eshop.db` (`alembic/versions/`). Existing production databases pick up only missing revisions. Do not add new columns in `src/db.py` if-blocks.
 
 ## How customers follow an order
 

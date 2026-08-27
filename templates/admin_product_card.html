@@ -1,0 +1,66 @@
+<article class="admin-product-card {% if product.hidden %}stock-hidden{% elif product.stock <= 0 %}stock-zero{% elif product.stock <= 2 %}stock-low{% endif %}" id="product-{{ product.id }}">
+  <a href="/admin/products/{{ product.id }}/edit" class="admin-product-photo">
+    <img src="{{ product.thumb_url }}" alt="">
+    {% if product.gallery|length > 1 %}
+    <span class="photo-count">{{ product.gallery|length }} photos</span>
+    {% endif %}
+  </a>
+  <div class="admin-product-body">
+    <p class="product-category">{{ product.category }}</p>
+    <h2 class="admin-product-name">{{ product.name }}</h2>
+    <p class="admin-product-price">{{ product.price_display }}</p>
+    <p class="admin-product-badges">
+      {% if product.hidden %}
+      <span class="status-pill status-cancelled">Hidden</span>
+      {% else %}
+      <span class="status-pill status-paid">Listed</span>
+      {% endif %}
+      {% if product.stock <= 0 %}
+      <span class="status-pill status-cancelled">Sold out</span>
+      {% elif product.stock <= 2 %}
+      <span class="status-pill status-in_progress">Low ({{ product.stock }})</span>
+      {% endif %}
+    </p>
+    <form action="/admin/stock/{{ product.id }}" method="post" class="qty-form"
+          hx-post="/admin/stock/{{ product.id }}"
+          hx-target="#product-{{ product.id }}"
+          hx-swap="outerHTML">
+      {% if active_category %}<input type="hidden" name="category" value="{{ active_category }}">{% endif %}
+      {% if active_visibility %}<input type="hidden" name="visibility" value="{{ active_visibility }}">{% endif %}
+      {% if search_q %}<input type="hidden" name="q" value="{{ search_q }}">{% endif %}
+      <label>
+        Qty
+        <input type="number" name="stock" value="{{ product.stock }}" min="0" class="qty-input">
+      </label>
+      <button type="submit" class="btn btn-ghost btn-sm">Save</button>
+    </form>
+    <div class="admin-product-actions">
+      <a href="/admin/products/{{ product.id }}/edit" class="btn btn-ghost btn-sm">Edit</a>
+      {% if product.listed %}
+      <a href="/product/{{ product.slug }}" class="btn btn-ghost btn-sm">View in shop</a>
+      <form action="/admin/products/{{ product.id }}/hide" method="post"
+            hx-post="/admin/products/{{ product.id }}/hide"
+            hx-target="#product-{{ product.id }}"
+            hx-swap="outerHTML">
+        {% if active_category %}<input type="hidden" name="category" value="{{ active_category }}">{% endif %}
+        {% if active_visibility %}<input type="hidden" name="visibility" value="{{ active_visibility }}">{% endif %}
+        {% if search_q %}<input type="hidden" name="q" value="{{ search_q }}">{% endif %}
+        <button type="submit" class="btn btn-ghost btn-sm">Hide</button>
+      </form>
+      {% else %}
+      <form action="/admin/products/{{ product.id }}/show" method="post"
+            hx-post="/admin/products/{{ product.id }}/show"
+            hx-target="#product-{{ product.id }}"
+            hx-swap="outerHTML">
+        {% if active_category %}<input type="hidden" name="category" value="{{ active_category }}">{% endif %}
+        {% if active_visibility %}<input type="hidden" name="visibility" value="{{ active_visibility }}">{% endif %}
+        {% if search_q %}<input type="hidden" name="q" value="{{ search_q }}">{% endif %}
+        <button type="submit" class="btn btn-ghost btn-sm">Show in shop</button>
+      </form>
+      {% endif %}
+      <form action="/admin/products/{{ product.id }}/delete" method="post" data-confirm="Remove {{ product.name }}?">
+        <button type="submit" class="btn btn-ghost btn-sm">Remove</button>
+      </form>
+    </div>
+  </div>
+</article>
