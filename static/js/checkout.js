@@ -3,7 +3,6 @@
   if (!form) return;
 
   const deliveryFields = document.getElementById("delivery-fields");
-  const deliveryCountry = document.getElementById("delivery-country");
   const shippingAddress = document.getElementById("shipping-address");
   const customerPhone = document.getElementById("customer-phone");
   const shippingDisplay = document.getElementById("shipping-display");
@@ -18,9 +17,14 @@
     return checked ? checked.value : "pickup";
   }
 
+  function selectedCountry() {
+    const checked = form.querySelector('input[name="delivery_country"]:checked');
+    return checked ? checked.value : "cyprus";
+  }
+
   function shippingCents() {
     if (selectedMethod() === "pickup") return 0;
-    return deliveryCountry && deliveryCountry.value === "other" ? internationalCents : cyprusCents;
+    return selectedCountry() === "other" ? internationalCents : cyprusCents;
   }
 
   function formatMoney(cents) {
@@ -58,8 +62,8 @@
   form.querySelectorAll('input[name="shipping_method"]').forEach((el) => {
     el.addEventListener("change", updateTotals);
   });
-  if (deliveryCountry) {
-    deliveryCountry.addEventListener("change", updateTotals);
-  }
+  form.querySelectorAll('input[name="delivery_country"]').forEach((el) => {
+    el.addEventListener("change", updateTotals);
+  });
   updateTotals();
 })();

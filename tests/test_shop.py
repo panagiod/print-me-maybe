@@ -570,8 +570,11 @@ def test_delivery_checkout_requires_phone() -> None:
     page = client.get("/checkout")
     assert 'name="customer_notes"' in page.text
     assert 'name="customer_phone"' in page.text
-    assert "International (" in page.text
+    assert "International" in page.text
     assert "Outside Cyprus" not in page.text
+    assert "choice-card" in page.text
+    assert 'name="delivery_country"' in page.text
+    assert 'name="shipping_method"' in page.text
     assert "Pay with cash at pick up" in page.text
     assert 'id="pay-cash-btn"' in page.text
     assert 'id="pay-card-btn"' in page.text
