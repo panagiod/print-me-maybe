@@ -1,36 +1,40 @@
 # Print Me Maybe (Hetzner)
 
-**Production deployment** of the [Print Me Maybe](https://www.instagram.com/print.me.maybe/) shop on a cheap Hetzner VPS with persistent storage, your own domain, Stripe Checkout, and Resend order emails.
+**Live shop:** [print-me-maybe.com](https://print-me-maybe.com) — [Print Me Maybe](https://www.instagram.com/print.me.maybe/) on a Hetzner VPS with persistent storage, Stripe Checkout, and Resend emails.
+
+Studio login: [print-me-maybe.com/admin/login](https://print-me-maybe.com/admin/login) (not linked in the public nav). Password is in `/etc/eshop.env` as `ADMIN_PASSWORD`.
 
 ## Purpose
 
 | | |
 |---|---|
-| **This repo** | [panagiod/print-me-maybe](https://github.com/panagiod/print-me-maybe) — Hetzner VPS, persistent disk, real card payments |
+| **This repo** | [panagiod/print-me-maybe](https://github.com/panagiod/print-me-maybe) — live Hetzner shop, persistent disk, real card payments |
 | **Not this repo** | [panagiod/eshop](https://github.com/panagiod/eshop) (`main`) — free Render demo at [print-me-maybe.onrender.com](https://print-me-maybe.onrender.com) |
 
 The two repos share the same Python app but serve different hosts. **Do not merge this tree into `eshop` `main`** — the Render shop stays as-is.
 
-**Why Hetzner?** Orders and product photos live on disk (`/var/lib/eshop`) instead of ephemeral `/tmp` on Render Free. Fixed cost is about **€8/month** (CX23 + VAT) + **~$11/year** for a domain. Stripe charges **1.5% + €0.25** on EEA cards with no monthly fee.
+**Why Hetzner?** Orders and product photos live on disk (`/var/lib/eshop`) instead of ephemeral `/tmp` on Render Free. Fixed cost is about **€8/month** (CX23 + VAT) + **~$11/year** for a domain. Stripe charges **1.5% + €0.25** on EEA cards with no monthly fee. That original card fee is **kept by Stripe** if you later cancel and refund (the customer still gets the full amount back).
 
-**Status:** application code and `deploy/` scripts are ready. **Domain:** `print-me-maybe.com` (registered). **Go-live work:** [GitHub Issues](https://github.com/panagiod/print-me-maybe/issues).
+## Status
 
-## Next steps
+The shop is **in production**. Push to `main` deploys automatically.
 
-Work through these issues in order:
+| Step | Issue | State |
+|------|-------|--------|
+| Buy domain | [#8](https://github.com/panagiod/print-me-maybe/issues/8) | Done — `print-me-maybe.com` |
+| Provision VPS | [#7](https://github.com/panagiod/print-me-maybe/issues/7) | Done — live server |
+| Point DNS | [#3](https://github.com/panagiod/print-me-maybe/issues/3) | Done |
+| Deploy shop | [#5](https://github.com/panagiod/print-me-maybe/issues/5) | Done — CI/CD on `main` |
+| Stripe Checkout | [#6](https://github.com/panagiod/print-me-maybe/issues/6) | Done — webhook + secret on the VPS |
+| Resend emails | [#2](https://github.com/panagiod/print-me-maybe/issues/2) | Done |
+| Paid order survives reboot | [#4](https://github.com/panagiod/print-me-maybe/issues/4) | Still worth doing once |
 
-1. ~~[#8 Buy a domain](https://github.com/panagiod/print-me-maybe/issues/8)~~ — **done:** `print-me-maybe.com`
-2. [#7 Provision Hetzner CX23 VPS](https://github.com/panagiod/print-me-maybe/issues/7)
-3. [#3 Point DNS at the Hetzner server](https://github.com/panagiod/print-me-maybe/issues/3)
-4. [#5 Deploy the shop on the VPS](https://github.com/panagiod/print-me-maybe/issues/5)
-5. [#6 Connect Stripe Checkout](https://github.com/panagiod/print-me-maybe/issues/6)
-6. [#2 Verify domain in Resend and configure order emails](https://github.com/panagiod/print-me-maybe/issues/2)
-7. [#4 Smoke test: paid order survives a reboot](https://github.com/panagiod/print-me-maybe/issues/4)
+The [Go live](#go-live-cheapest-stack) sections below are a rebuild record, not a to-do list.
 
 ## Contents
 
 - [Purpose](#purpose)
-- [Next steps](#next-steps)
+- [Status](#status)
 - [What this project is](#what-this-project-is)
 - [Go live (cheapest stack)](#go-live-cheapest-stack)
 - [Buy a Hetzner CX23 server](#buy-a-hetzner-cx23-server)
@@ -45,6 +49,8 @@ Work through these issues in order:
 - [Shop behaviour](#shop-behaviour)
 - [Shipping](#shipping)
 - [Studio admin](#studio-admin)
+- [How customers follow an order](#how-customers-follow-an-order)
+- [Payments and refunds](#payments-and-refunds)
 - [Order emails](#order-emails)
 - [Security](#security)
 - [Backups](#backups)
@@ -56,18 +62,20 @@ Work through these issues in order:
 |-----------------------|---------------------------|
 | Keep orders and photos on the Hetzner disk (`/var/lib/eshop`) | Wipe data on sleep (Render Free does that) |
 | Take **card payment** via Stripe Checkout when `STRIPE_SECRET_KEY` is set | Charge a monthly Stripe or Shopify fee |
-| Email the studio via Resend after you verify **your** domain | Send from `onboarding@resend.dev` or `outlook.com` |
+| Email studio and customer via Resend after you verify **your** domain | Send from `onboarding@resend.dev` or `outlook.com` |
 
 Custom names/files still go over **Instagram DM**.
 
 ## Go live (cheapest stack)
 
-Track progress in [Issues](https://github.com/panagiod/print-me-maybe/issues). Summary:
+These steps are **already done** for `print-me-maybe.com`. Kept so you can rebuild or compare against the original issues.
+
+Track leftover checks in [Issues](https://github.com/panagiod/print-me-maybe/issues). Summary:
 
 1. **Domain** — **done:** `print-me-maybe.com` ([#8](https://github.com/panagiod/print-me-maybe/issues/8))
-2. **Server** — [#7](https://github.com/panagiod/print-me-maybe/issues/7) Hetzner Cloud **CX23** — see [Buy a Hetzner CX23 server](#buy-a-hetzner-cx23-server) below.
-3. **DNS** — [#3](https://github.com/panagiod/print-me-maybe/issues/3) — see [Point DNS at the Hetzner server](#point-dns-at-the-hetzner-server) below.
-4. **Install** — [#5](https://github.com/panagiod/print-me-maybe/issues/5) SSH as root (one-time bootstrap):
+2. **Server** — **done:** Hetzner Cloud **CX23** ([#7](https://github.com/panagiod/print-me-maybe/issues/7)) — see [Buy a Hetzner CX23 server](#buy-a-hetzner-cx23-server) below.
+3. **DNS** — **done:** ([#3](https://github.com/panagiod/print-me-maybe/issues/3)) — see [Point DNS at the Hetzner server](#point-dns-at-the-hetzner-server) below.
+4. **Install** — **done:** ([#5](https://github.com/panagiod/print-me-maybe/issues/5)). SSH as root was the one-time bootstrap:
 
    ```bash
    git clone https://github.com/panagiod/print-me-maybe.git /opt/eshop
@@ -79,11 +87,11 @@ Track progress in [Issues](https://github.com/panagiod/print-me-maybe/issues). S
    Manual update anytime: `bash /opt/eshop/deploy/deploy.sh`
 
    `install.sh` generates `SESSION_SECRET` and `ADMIN_PASSWORD` and prints the admin password once. Caddy gets HTTPS automatically after DNS points at the server.
-5. **Stripe** — [#6](https://github.com/panagiod/print-me-maybe/issues/6) [dashboard.stripe.com](https://dashboard.stripe.com) → activate payments, EUR, copy the **secret** key into `STRIPE_SECRET_KEY`. Add a webhook endpoint `https://print-me-maybe.com/webhooks/stripe` for `checkout.session.completed` and put the signing secret in `STRIPE_WEBHOOK_SECRET`. Checkout redirects to Stripe; the order is created from the webhook (or `/pay/success`) only after `payment_status=paid`.
-6. **Resend** — [#2](https://github.com/panagiod/print-me-maybe/issues/2) [resend.com/domains](https://resend.com/domains) → add `print-me-maybe.com` (not `onrender.com`) → paste DNS records → wait for **Verified** → set `RESEND_FROM=Print Me Maybe <orders@print-me-maybe.com>`.
-7. **Smoke test** — [#4](https://github.com/panagiod/print-me-maybe/issues/4) Check `https://print-me-maybe.com/health` — `"payments": true`, `"persistent": true`. Place a **test** card order (`ACCT-000015`), reboot the VPS, confirm the order is still in studio.
+5. **Stripe** — **done:** ([#6](https://github.com/panagiod/print-me-maybe/issues/6)) [dashboard.stripe.com](https://dashboard.stripe.com) → activate payments, EUR, copy the **secret** key into `STRIPE_SECRET_KEY`. Add a webhook endpoint `https://print-me-maybe.com/webhooks/stripe` for `checkout.session.completed` and put the signing secret in `STRIPE_WEBHOOK_SECRET`. Checkout redirects to Stripe; the order is created from the webhook (or `/pay/success`) only after `payment_status=paid`.
+6. **Resend** — **done:** ([#2](https://github.com/panagiod/print-me-maybe/issues/2)) [resend.com/domains](https://resend.com/domains) → add `print-me-maybe.com` (not `onrender.com`) → paste DNS records → wait for **Verified** → set `RESEND_FROM=Print Me Maybe <orders@print-me-maybe.com>`.
+7. **Smoke test** — still open: [#4](https://github.com/panagiod/print-me-maybe/issues/4) Check `https://print-me-maybe.com/health` — `"payments": true`, `"persistent": true`. Place a **test** card order (`ACCT-000015`), reboot the VPS, confirm the order is still in studio.
 
-Until `STRIPE_SECRET_KEY` is set, checkout stays a no-card demo (same as the Render shop).
+Until `STRIPE_SECRET_KEY` is set, checkout stays a no-card demo (same as the Render shop). Production has the key set (`/health` shows `"payments": true`).
 
 ## Buy a Hetzner CX23 server
 
@@ -196,9 +204,9 @@ Resend TXT/MX records for email ([#2](https://github.com/panagiod/print-me-maybe
 - Session cart; quantity cannot exceed stock
 - Shipping chosen at checkout (see [Shipping](#shipping)): pick up free, Cyprus delivery €3.50, outside Cyprus €10
 - Checkout: name, email, pick-up or delivery, then **Stripe Checkout** when `STRIPE_SECRET_KEY` is set
-- Customer order page at `/order/{unguessable-token}`
-- Studio at `/admin` (not linked in public nav): orders, notes, cancel (refund + restock + customer email), add/remove product + photo
-- Background order email via [Resend](https://resend.com) (needs a domain you own — see [Order emails](#order-emails))
+- Customer order page at `/order/{unguessable-token}` — status, payment, tracking number
+- Studio at `/admin` (not linked in public nav): orders, tracking number, notes, cancel (Stripe refund + restock + customer email), add/edit/remove product + photo
+- Emails via [Resend](https://resend.com): new order (studio + customer), shipped (customer, with tracking), cancelled (studio + customer), attack alerts
 - JSON catalog at `GET /api/products`
 - Liveness at `GET /health` (`mail`, `payments`, `persistent`)
 
@@ -215,14 +223,14 @@ Resend TXT/MX records for email ([#2](https://github.com/panagiod/print-me-maybe
 ```
 src/                 FastAPI app
   main.py            Storefront routes (home, product, cart, checkout, health)
-  admin.py           Studio login, orders, stock, add/edit/remove product, test email
+  admin.py           Studio login, orders, tracking, stock, add/edit/remove product, test email
   store.py           Products, cart lines, place_order, pending Stripe checkouts
   db.py              SQLite schema and DATA_DIR
   models.py          Product/Order types, EUR formatting, shipping rules
   seed.py            Catalog copied from Instagram listings
   payments.py        Stripe Checkout, webhooks, refunds
   fulfill.py         Paid Stripe session → order (idempotent)
-  notify.py          Resend/SMTP mail, attack alerts, customer confirmation
+  notify.py          Resend/SMTP mail, attack alerts, customer confirmation / shipped / cancelled
   ratelimit.py       Per-IP limits
   security.py        Secrets, HTTPS cookies, CSP/HSTS
   uploads.py         Admin product photos
@@ -257,7 +265,7 @@ python3 -m pytest tests/ -v
 
 GitHub Actions (`.github/workflows/ci.yml`) runs on every pull request and on push to `main`: install deps, pytest, then boot Uvicorn and `curl` `/health` and `/`.
 
-Shop tests cover pick-up (free), Cyprus delivery (€3.50), international delivery (€10), and studio product delete (including the block when a product has already been ordered).
+Shop tests cover pick-up (free), Cyprus delivery (€3.50), international delivery (€10), studio product delete (including the block when a product has already been ordered), admin cancel (restock; Stripe refund when paid), and shipping a tracking number to the customer order page.
 
 ## CI/CD deployment
 
@@ -358,7 +366,16 @@ Two dashboards that are easy to mix up:
 
 Pick-up orders store method `pickup` and address `Pick up at studio`. Delivery orders store `shipping_method`, `delivery_country` (`cyprus` or `other`), and the typed address.
 
-**Customer order URL.** `/order/{lookup_token}` — random token, not the numeric id. Confirmation, order pages, and emails show the shipping method label plus Free / €3.50 / €10.
+**Customer order URL.** `/order/{lookup_token}` — random token, not the numeric id. Guessing `/order/12` returns 404. The thank-you page and the confirmation email both include this link.
+
+The page shows:
+
+- Status: New, In progress, Ready to ship, Shipped, or Cancelled
+- Payment: Unpaid, Paid, or Refunded
+- Shipping method and address
+- Tracking number, once you save one in studio (see [How customers follow an order](#how-customers-follow-an-order))
+
+Confirmation, order pages, and emails also show the shipping method label plus Free / €3.50 / €10.
 
 ## Shipping
 
@@ -373,31 +390,86 @@ Rates are decided at checkout, not from cart size. There is no free-shipping thr
 - Cart copy: “Pick up is free. Cyprus delivery is €3.50. Outside Cyprus is €10.”
 - Home hero: “Free pick up; €3.50 delivery in Cyprus; €10 shipping outside Cyprus.”
 - Checkout totals update in the browser when the customer switches pick-up / delivery or Cyprus / outside Cyprus. The server recomputes the same numbers on POST (and again from Stripe metadata after payment).
-- The `orders` table stores `shipping_method`, `delivery_country`, `shipping_address`, and a combined `total_cents` (subtotal + shipping). Shipping itself is also derived as `total_cents − item subtotal`.
+- The `orders` table stores `shipping_method`, `delivery_country`, `shipping_address`, `tracking_number`, and a combined `total_cents` (subtotal + shipping). Shipping itself is also derived as `total_cents − item subtotal`.
 
 ## Studio admin
 
-Public nav does not advertise `/admin`. Login: `/admin/login` on your domain.
+Public nav does not advertise `/admin`. Login: `/admin/login` on your domain (production: [print-me-maybe.com/admin/login](https://print-me-maybe.com/admin/login)).
 
 | Page | What it does |
 |------|----------------|
 | `/admin/orders` | Filter by status; Paid / Unpaid / Refunded; **Send test email** |
-| `/admin/orders/{id}` | Status, tracking number, notes, cancel (Stripe refund if paid, restock, email customer) / reopen (deduct stock; does not charge again) |
+| `/admin/orders/{id}` | Status, **tracking number**, notes, cancel (Stripe refund if paid, restock, email customer) / reopen (deduct stock; does not charge again) |
 | `/admin/stock` | Add product; **Edit** name/price/description/category/photo/qty; set stock; **Remove** unused products |
 
-**Remove a product.** Each row on `/admin/stock` has a **Remove** button (`POST /admin/products/{id}/delete`). Deletion is a hard delete from the `products` table. It is **blocked** if that product appears on any past order (foreign key on `order_items`). In that case the studio sees: *This product has been ordered before. Set stock to 0 to hide it from the shop.* Setting stock to 0 still hides the item from the public catalog without deleting history.
+### Daily order flow
+
+1. Open **Orders**. New paid checkouts show **Paid**.
+2. Open the order. Set status **In progress** then **Ready to ship** as you work. Save notes for custom names, files, Instagram.
+3. When it leaves: set status **Shipped**, paste the courier number in **Tracking number**, Save. The customer sees it on their order link and gets an email.
+4. You can add the tracking number later; saving a new number on an already-shipped order emails the customer again. Leave it blank for pick-up.
 
 Order statuses: New → In progress → Ready to ship → Shipped, plus Cancelled.
 
+### Cancel
+
 **Cancel a paid order** from that order page. The shop refunds the Stripe Checkout payment first; if Stripe rejects the refund, the order stays open and stock is not put back. After a successful refund the payment pill shows **Refunded**, items return to stock, and the customer (and studio inbox) get a cancellation email. Unpaid demo orders skip Stripe and still email the customer. Reopening a cancelled order deducts stock again and does **not** charge the card.
 
-**Tracking number.** On the same order page, paste the courier number in **Tracking number** when you set status to **Shipped**. It is stored on the order, shown on the customer’s `/order/{token}` page, and included in a shipped email. You can add the number later; saving a new tracking number on an already-shipped order emails the customer again. Leave it blank for pick-up.
+Stripe keeps the original card processing fee on a refund (see [Payments and refunds](#payments-and-refunds)).
+
+### Catalog
+
+**Remove a product.** Each row on `/admin/stock` has a **Remove** button (`POST /admin/products/{id}/delete`). Deletion is a hard delete from the `products` table. It is **blocked** if that product appears on any past order (foreign key on `order_items`). In that case the studio sees: *This product has been ordered before. Set stock to 0 to hide it from the shop.* Setting stock to 0 still hides the item from the public catalog without deleting history.
 
 Uploaded photos are served from `/media/products/...` and stored under `DATA_DIR/product-images`.
 
+## How customers follow an order
+
+There is no customer login and no public “track my order” form.
+
+After checkout they get:
+
+1. A thank-you page with **View order details**
+2. A confirmation email with the same private link: `https://print-me-maybe.com/order/…`
+
+They refresh that page to see status changes you save in admin (In progress, Ready to ship, Shipped, Cancelled) and the tracking number when you add one. They do **not** get an email for every status change — only:
+
+- the original confirmation
+- a **shipped** email (when you mark Shipped, or later add/change tracking on a shipped order)
+- a **cancelled** email (when you cancel)
+
+If they lose the email, they would need to message the studio (Instagram or reply to the order mail). Admin does not currently show a “copy customer link” button.
+
+## Payments and refunds
+
+Card checkout uses Stripe Checkout (EUR). Production webhook: `https://print-me-maybe.com/webhooks/stripe` for `checkout.session.completed`. Secret: `STRIPE_WEBHOOK_SECRET` in `/etc/eshop.env`.
+
+**EEA cards** are typically **1.5% + €0.25** with no monthly Stripe fee.
+
+| What you do | Customer | Stripe fee |
+|-------------|----------|------------|
+| Paid order | Charged the full total | You pay the processing fee |
+| Cancel in admin (paid) | Full amount refunded to the original card | **Original fee is not returned** |
+| Cancel unpaid / no card | Nothing charged | Nothing |
+
+There is no extra Stripe fee for issuing a **card** refund on standard Cyprus pricing. Bank-transfer refunds can have extra fees; this shop takes cards through Checkout.
+
+Refunds use your Stripe balance. If the balance is too low, Stripe may hold the refund until more payments land.
+
+Dashboard: [dashboard.stripe.com](https://dashboard.stripe.com) → the payment for that order is the source of truth for the exact fee.
+
 ## Order emails
 
-New checkouts and blocked login/checkout floods email **dimitrioupanagiotis@outlook.com**. Checkout still succeeds if mail fails. Cancelling an order from studio admin also emails the customer (refund notice when a card payment was returned). Marking an order **Shipped** emails the customer the tracking number when you added one.
+| Event | Studio inbox (`NOTIFY_EMAIL`) | Customer |
+|-------|-------------------------------|----------|
+| New paid or unpaid order | Yes (order details) | Yes (confirmation + private order link) |
+| Marked **Shipped** (or tracking added later on a shipped order) | No | Yes (tracking number if you saved one) |
+| **Cancelled** | Yes | Yes (refund notice when a card payment was returned) |
+| Paid Stripe session could not create an order | Yes | No (refund is attempted; studio must follow up) |
+| Blocked login / checkout flood | Yes (at most once per hour per type) | No |
+| **Send test email** in admin | Yes | No |
+
+Checkout still succeeds if mail fails. New checkouts and attack alerts go to **dimitrioupanagiotis@outlook.com**.
 
 ### What you cannot add in Resend → Domains
 
