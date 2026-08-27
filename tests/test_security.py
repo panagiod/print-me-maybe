@@ -32,6 +32,8 @@ def test_security_headers_on_home() -> None:
     assert response.headers["x-frame-options"] == "DENY"
     assert "strict-origin-when-cross-origin" in response.headers["referrer-policy"]
     assert "frame-ancestors 'none'" in response.headers["content-security-policy"]
+    csp = response.headers["content-security-policy"]
+    assert "form-action 'self' https://checkout.stripe.com" in csp
     assert "strict-transport-security" not in response.headers
 
 
