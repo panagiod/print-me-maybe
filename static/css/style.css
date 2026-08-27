@@ -690,6 +690,16 @@ img {
   background: radial-gradient(circle, var(--accent) 0 0.35rem, #fff 0.4rem 100%);
 }
 
+.address-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0 1rem;
+}
+
+.address-grid .address-street {
+  grid-column: 1 / -1;
+}
+
 .checkout-pay-actions {
   display: flex;
   flex-direction: column;
@@ -1169,6 +1179,10 @@ img {
   }
 
   .choice-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .address-grid {
     grid-template-columns: 1fr;
   }
 

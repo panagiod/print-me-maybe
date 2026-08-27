@@ -66,9 +66,11 @@ def cart_snapshot(lines: list) -> str:
 def _shipping_line_name(shipping_method: str, delivery_country: str) -> str:
     if shipping_method == "pickup":
         return "Pick up at studio"
+    if delivery_country == "greece":
+        return "Delivery in Greece"
     if delivery_country == "other":
         return "International delivery"
-    return "Delivery (Cyprus)"
+    return "Delivery in Cyprus"
 
 
 def create_checkout_session(

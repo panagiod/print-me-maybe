@@ -17,12 +17,13 @@ from starlette.middleware.sessions import SessionMiddleware
 from src.admin import router as admin_router
 from src.db import data_persistent, init_schema, product_images_dir
 from src.models import (
-    DELIVERY_COUNTRIES,
+    CHECKOUT_DELIVERY_COUNTRIES,
     PICKUP_ADDRESS_LABEL,
     SHIPPING_METHODS,
     Order,
     clean_phone,
     format_money,
+    format_shipping_address,
     normalize_payment_method,
     phone_has_enough_digits,
     shipping_cents,
@@ -121,19 +122,46 @@ def normalize_shipping_method(raw: str) -> str:
 
 def normalize_delivery_country(raw: str | None) -> str:
     country = (raw or "").strip().lower()
-    if country not in DELIVERY_COUNTRIES:
-        raise ValueError("Choose Cyprus or international delivery")
+    if country not in CHECKOUT_DELIVERY_COUNTRIES:
+        raise ValueError("Choose Cyprus or Greece")
     return country
+
+
+def compose_delivery_address(
+    *,
+    address_line: str,
+    city: str,
+    postal_code: str,
+    delivery_country: str,
+    fallback: str = "",
+) -> str:
+    """Require street, city, and postcode; accept a legacy single address as fallback."""
+    street = (address_line or "").strip()
+    town = (city or "").strip()
+    postcode = (postal_code or "").strip()
+    leftover = (fallback or "").strip()
+    if street or town or postcode:
+        if not (street and town and postcode):
+            raise ValueError("Enter a street, city, and postcode")
+        return format_shipping_address(
+            address_line=street,
+            city=town,
+            postal_code=postcode,
+            delivery_country=delivery_country,
+        )
+    if leftover:
+        return leftover
+    raise ValueError("Enter a street, city, and postcode")
 
 
 def shipping_display_ctx() -> dict[str, int | str]:
     cyprus = shipping_cents("delivery", "cyprus")
-    international = shipping_cents("delivery", "other")
+    greece = shipping_cents("delivery", "greece")
     return {
         "cyprus_shipping_cents": cyprus,
         "cyprus_shipping_display": format_money(cyprus),
-        "international_shipping_cents": international,
-        "international_shipping_display": format_money(international),
+        "greece_shipping_cents": greece,
+        "greece_shipping_display": format_money(greece),
     }
 
 
@@ -292,6 +320,9 @@ def checkout_submit(
     customer_email: str = Form(...),
     shipping_method: str = Form(...),
     delivery_country: str = Form("cyprus"),
+    address_line: str = Form(""),
+    city: str = Form(""),
+    postal_code: str = Form(""),
     shipping_address: str = Form(""),
     customer_notes: str = Form(""),
     customer_phone: str = Form(""),
@@ -304,7 +335,10 @@ def checkout_submit(
 
     name = customer_name.strip()
     email = customer_email.strip()
-    address = shipping_address.strip()
+    street = address_line.strip()
+    town = city.strip()
+    postcode = postal_code.strip()
+    leftover_address = shipping_address.strip()
     notes = (customer_notes or "").strip()[:1000]
     phone = clean_phone(customer_phone)
 
@@ -316,7 +350,9 @@ def checkout_submit(
         **shipping_display_ctx(),
         "form_customer_name": name,
         "form_customer_email": email,
-        "form_shipping_address": address,
+        "form_address_line": street,
+        "form_city": town,
+        "form_postal_code": postcode,
         "form_customer_notes": notes,
         "form_customer_phone": phone,
         "form_payment_method": payment_method,
@@ -325,12 +361,18 @@ def checkout_submit(
     try:
         method = normalize_shipping_method(shipping_method)
         country = normalize_delivery_country(delivery_country) if method == "delivery" else None
-        if method == "delivery" and not address:
-            raise ValueError("Enter a delivery address")
+        if method == "delivery":
+            address = compose_delivery_address(
+                address_line=street,
+                city=town,
+                postal_code=postcode,
+                delivery_country=country or "",
+                fallback=leftover_address,
+            )
+        else:
+            address = PICKUP_ADDRESS_LABEL
         if method == "delivery" and not phone_has_enough_digits(phone):
             raise ValueError("Enter a phone number for delivery")
-        if method == "pickup":
-            address = PICKUP_ADDRESS_LABEL
         pay = normalize_payment_method(payment_method, method)
         totals = checkout_totals(lines, shipping_method=method, delivery_country=country)
     except ValueError as exc:

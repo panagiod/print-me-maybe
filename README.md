@@ -202,8 +202,8 @@ Resend TXT/MX records for email ([#2](https://github.com/panagiod/print-me-maybe
 
 - Catalog with category filter (3D Prints / Laser Engraving); product pages can show a photo gallery
 - Session cart; quantity cannot exceed stock
-- Shipping chosen at checkout (see [Shipping](#shipping)): pick up free, Cyprus delivery €3.50, international €10
-- Checkout: name, email, phone (required for delivery), optional order notes, pick-up or delivery, **card (Stripe)** or **cash at pick up**
+- Shipping chosen at checkout (see [Shipping](#shipping)): pick up free, Cyprus delivery €3.50, Greece delivery €10
+- Checkout: name, email, phone (required for delivery), street / city / postcode, optional order notes, pick-up or delivery (Cyprus or Greece), **card (Stripe)** or **cash at pick up**
 - Customer order page at `/order/{unguessable-token}` — status, payment, tracking number, notes (times in Europe/Nicosia)
 - Studio at `/admin` (not linked in public nav): orders (search, shipping filters), tracking, customer/studio notes, copy customer link, resend mail, cash/bank paid, packing slip (print + PDF), cancel (Stripe refund + restock + customer email), catalog with photos, hide/show, add/edit/remove product + gallery
 - Emails via [Resend](https://resend.com): new order (studio + customer), ready to collect/pack, shipped (customer; delivery waits for tracking), cancelled (studio + customer), attack alerts
@@ -271,7 +271,7 @@ python3 -m pytest tests/ -v
 
 GitHub Actions (`.github/workflows/ci.yml`) runs on every pull request and on push to `main`: install cairo/pango (WeasyPrint), pip deps, pytest, then boot Uvicorn and `curl` `/health` and `/`.
 
-Shop tests cover pick-up (free), Cyprus delivery (€3.50, phone required), international delivery (€10), checkout notes, **cash at pick up** (skips Stripe; delivery cannot be cash), studio product delete (including the block when a product has already been ordered), admin cancel (restock; Stripe refund when paid by card, not for cash), cash/bank mark-paid, ready and shipped emails, shipping a tracking number to the customer order page, photo thumbs, Alembic upgrades from a legacy SQLite file, HTMX stock fragments, and packing-slip PDFs.
+Shop tests cover pick-up (free), Cyprus delivery (€3.50, street/city/postcode and phone required), Greece delivery (€10), checkout notes, **cash at pick up** (skips Stripe; delivery cannot be cash), studio product delete (including the block when a product has already been ordered), admin cancel (restock; Stripe refund when paid by card, not for cash), cash/bank mark-paid, ready and shipped emails, shipping a tracking number to the customer order page, photo thumbs, Alembic upgrades from a legacy SQLite file, HTMX stock fragments, and packing-slip PDFs.
 
 ## CI/CD deployment
 
@@ -364,7 +364,7 @@ Two dashboards that are easy to mix up:
 
 **Cart.** Stored in the signed session cookie (7 days). Add/update quantity is capped at remaining stock. Zero stock hides a product from the shop and the product page shows **Sold out** (no Add to cart). **Hidden** products (studio toggle) are omitted from the shop and product URLs 404. The cart shows the product subtotal only; shipping is not applied until checkout.
 
-**Checkout.** GET `/checkout` collects name, email, optional phone, optional order notes (colour, name, files), and a delivery choice (pick up vs ship) as two cards. Payment is two submit buttons: **Pay with card** and **Pay with cash at pick up** (cash is hidden for delivery). Delivery requires a destination card (Cyprus or international), an address, and a phone number. POST `/checkout` then:
+**Checkout.** GET `/checkout` collects name, email, optional phone, optional order notes (colour, name, files), and a delivery choice (pick up vs ship) as two cards. Payment is two submit buttons: **Pay with card** and **Pay with cash at pick up** (cash is hidden for delivery). Delivery requires a destination card (**Cyprus** or **Greece**), street, city, postcode, and a phone number. POST `/checkout` then:
 
 1. Recalculates shipping from the chosen method and destination (see [Shipping](#shipping)).
 2. **Cash at pick up:** places an Unpaid order immediately (`payment_method=cash`), skips Stripe, emails the customer to bring cash, and empties the cart.
@@ -372,7 +372,7 @@ Two dashboards that are easy to mix up:
 4. If creating the order fails after a **card** payment (for example stock ran out), the shop refunds the PaymentIntent and emails the studio.
 5. Without Stripe, card checkout is the no-card demo and still stores the same total (subtotal + shipping). Cash at pick up still sets `payment_method=cash`.
 
-Pick-up orders store method `pickup` and address `Pick up at studio`. Delivery orders store `shipping_method`, `delivery_country` (`cyprus` or `other`), the typed address, and `customer_phone`. Customer notes are stored separately from studio notes.
+Pick-up orders store method `pickup` and address `Pick up at studio`. Delivery orders store `shipping_method`, `delivery_country` (`cyprus` or `greece`), a composed `shipping_address` (street, city, postcode, country name), and `customer_phone`. Older orders may still have `delivery_country=other` (international). Customer notes are stored separately from studio notes.
 
 **Customer order URL.** `/order/{lookup_token}` — random token, not the numeric id. Guessing `/order/12` returns 404. The thank-you page and the confirmation email both include this link. Times on that page (and in studio) are shown in **Europe/Nicosia**.
 
@@ -395,11 +395,12 @@ Rates are decided at checkout, not from cart size. There is no free-shipping thr
 |--------|-------------|--------|-----------------------------|
 | Pick up at studio | — | Free | `shipping_cents("pickup")` → `0` |
 | Delivery | Cyprus | €3.50 | `CYPRUS_SHIPPING_CENTS = 350` |
-| Delivery | International | €10.00 | `INTERNATIONAL_SHIPPING_CENTS = 1000` |
+| Delivery | Greece | €10.00 | `INTERNATIONAL_SHIPPING_CENTS = 1000` (same rate as leftover `other` orders) |
 
-- Cart copy: “Pick up is free. Cyprus delivery is €3.50. International shipping is €10.”
-- Home hero: “Free pick up; €3.50 delivery in Cyprus; €10 international shipping.”
-- Checkout totals update in the browser when the customer switches pick-up / delivery or Cyprus / international. The server recomputes the same numbers on POST (and again from Stripe metadata after payment).
+- Cart copy: “Pick up is free. Cyprus delivery is €3.50. Delivery in Greece is €10.”
+- Home hero: “Free pick up; €3.50 delivery in Cyprus; €10 delivery in Greece.”
+- Checkout totals update in the browser when the customer switches pick-up / delivery or Cyprus / Greece. The server recomputes the same numbers on POST (and again from Stripe metadata after payment). Shipping is taken from the **country** card, not from a free-text country name.
+- Delivery address is **street**, **city**, and **postcode** (plus the Cyprus/Greece card). Those fields are joined into `orders.shipping_address` so packing slips, emails, and Stripe metadata stay one text block.
 - **Pay with cash at pick up** is offered on checkout when pick up is selected. That places an **Unpaid** order with `payment_method=cash` and does **not** open Stripe. Delivery is card only. Studio **Mark as paid (cash/bank)** when they collect.
 - The `orders` table stores `shipping_method`, `delivery_country`, `shipping_address`, `tracking_number`, `customer_notes`, `customer_phone`, `payment_method`, `archived` (shipped/cancelled orders can leave the inbox), and a combined `total_cents` (subtotal + shipping). Shipping itself is also derived as `total_cents − item subtotal`.
 
@@ -409,7 +410,7 @@ Public nav does not advertise `/admin`. Login: `/admin/login` on your domain (pr
 
 | Page | What it does |
 |------|----------------|
-| `/admin/orders` | Filter by status, shipping (pickup / Cyprus / international), and **date range (Cyprus time)**; **newest / oldest**; search by number, name, email, tracking, or **product code**; **Inbox vs Archived**; bulk-archive shipped/cancelled in the current view; Paid / Unpaid / Refunded; **Send test email** |
+| `/admin/orders` | Filter by status, shipping (pickup / Cyprus / Greece / leftover international), and **date range (Cyprus time)**; **newest / oldest**; search by number, name, email, tracking, or **product code**; **Inbox vs Archived**; bulk-archive shipped/cancelled in the current view; Paid / Unpaid / Refunded; **Send test email** |
 | `/admin/orders/{id}` | Status, **tracking number**, customer notes vs studio notes, phone (`tel:`), copy customer link, resend confirmation (and shipped email), **Mark as paid (cash/bank)**, **Archive** shipped/cancelled (or **Restore to inbox**), print packing slip, **download PDF**, Stripe session id, cancel (Stripe refund if card-paid, restock, email customer) / reopen (blocked if refunded) |
 | `/admin/orders/{id}/print` | Packing slip (print hides the admin chrome) |
 | `/admin/orders/{id}/print.pdf` | Same slip as a downloadable PDF |
@@ -419,7 +420,7 @@ Public nav does not advertise `/admin`. Login: `/admin/login` on your domain (pr
 
 ### Daily order flow
 
-1. Open **Orders**. The default **Inbox** hides archived shipped and cancelled orders. New **card** checkouts show **Paid**. Cash-at-pick-up orders show **Unpaid · cash**. Use search, date From/To (Cyprus time), Newest/Oldest, or Pickup / Cyprus / International chips on packing day.
+1. Open **Orders**. The default **Inbox** hides archived shipped and cancelled orders. New **card** checkouts show **Paid**. Cash-at-pick-up orders show **Unpaid · cash**. Use search, date From/To (Cyprus time), Newest/Oldest, or Pickup / Cyprus / Greece chips on packing day.
 2. Open the order. Set status **In progress** then **Ready to ship** as you work. Ready emails the customer once (pickup: collect at studio; delivery: packed for courier). Studio notes are yours; customer notes came from checkout.
 3. When it leaves: set status **Shipped**. For **delivery**, paste the courier number in **Tracking number** and Save — the customer is emailed only when a tracking number exists. Pickup customers get a collect-at-studio email (no tracking nag).
 4. You can add the tracking number later; saving a new number on an already-shipped delivery emails the customer again.
