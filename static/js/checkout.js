@@ -3,14 +3,14 @@
   if (!form) return;
 
   const deliveryFields = document.getElementById("delivery-fields");
-  const shippingAddress = document.getElementById("shipping-address");
+  const addressInputs = form.querySelectorAll("[data-delivery-required]");
   const customerPhone = document.getElementById("customer-phone");
   const shippingDisplay = document.getElementById("shipping-display");
   const totalDisplay = document.getElementById("total-display");
   const cashBtn = document.getElementById("pay-cash-btn");
   const subtotalCents = Number(form.dataset.subtotalCents || 0);
   const cyprusCents = Number(form.dataset.cyprusShippingCents || 0);
-  const internationalCents = Number(form.dataset.internationalShippingCents || 0);
+  const greeceCents = Number(form.dataset.greeceShippingCents || 0);
 
   function selectedMethod() {
     const checked = form.querySelector('input[name="shipping_method"]:checked');
@@ -24,7 +24,7 @@
 
   function shippingCents() {
     if (selectedMethod() === "pickup") return 0;
-    return selectedCountry() === "other" ? internationalCents : cyprusCents;
+    return selectedCountry() === "greece" ? greeceCents : cyprusCents;
   }
 
   function formatMoney(cents) {
@@ -37,9 +37,9 @@
       deliveryFields.classList.toggle("is-hidden", !isDelivery);
       deliveryFields.disabled = !isDelivery;
     }
-    if (shippingAddress) {
-      shippingAddress.required = isDelivery;
-    }
+    addressInputs.forEach((input) => {
+      input.required = isDelivery;
+    });
     if (customerPhone) {
       customerPhone.required = isDelivery;
     }

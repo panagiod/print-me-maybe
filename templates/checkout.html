@@ -17,7 +17,7 @@
     id="checkout-form"
     data-subtotal-cents="{{ subtotal_cents }}"
     data-cyprus-shipping-cents="{{ cyprus_shipping_cents }}"
-    data-international-shipping-cents="{{ international_shipping_cents }}"
+    data-greece-shipping-cents="{{ greece_shipping_cents }}"
     data-payments-on="{% if payments_on %}1{% else %}0{% endif %}"
   >
     <fieldset>
@@ -54,7 +54,7 @@
             {% if form_shipping_method == 'delivery' %}checked{% endif %}>
           <span class="choice-copy">
             <span class="choice-title">Delivery</span>
-            <span class="choice-detail">Cyprus or international</span>
+            <span class="choice-detail">Cyprus or Greece</span>
           </span>
           <span class="choice-price">From {{ cyprus_shipping_display }}</span>
         </label>
@@ -75,19 +75,32 @@
           <span class="choice-price">{{ cyprus_shipping_display }}</span>
         </label>
         <label class="choice-card">
-          <input type="radio" name="delivery_country" value="other"
-            {% if form_delivery_country == 'other' %}checked{% endif %}>
+          <input type="radio" name="delivery_country" value="greece"
+            {% if form_delivery_country == 'greece' %}checked{% endif %}>
           <span class="choice-copy">
-            <span class="choice-title">International</span>
-            <span class="choice-detail">Everywhere else</span>
+            <span class="choice-title">Greece</span>
+            <span class="choice-detail">Courier to Greece</span>
           </span>
-          <span class="choice-price">{{ international_shipping_display }}</span>
+          <span class="choice-price">{{ greece_shipping_display }}</span>
         </label>
       </div>
-      <label>
-        Address
-        <textarea name="shipping_address" rows="3" autocomplete="street-address" id="shipping-address">{{ form_shipping_address or '' }}</textarea>
-      </label>
+      <div class="address-grid">
+        <label class="address-street">
+          Street address
+          <input type="text" name="address_line" id="address-line" autocomplete="street-address"
+            data-delivery-required value="{{ form_address_line or '' }}">
+        </label>
+        <label>
+          City
+          <input type="text" name="city" id="address-city" autocomplete="address-level2"
+            data-delivery-required value="{{ form_city or '' }}">
+        </label>
+        <label>
+          Postcode
+          <input type="text" name="postal_code" id="address-postal" autocomplete="postal-code"
+            data-delivery-required value="{{ form_postal_code or '' }}">
+        </label>
+      </div>
     </fieldset>
 
     <fieldset>

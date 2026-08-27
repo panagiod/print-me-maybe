@@ -576,6 +576,8 @@ def _order_filter_sql(
         clauses.append("shipping_method = 'pickup'")
     elif shipping == "cyprus":
         clauses.append("shipping_method = 'delivery' AND delivery_country = 'cyprus'")
+    elif shipping == "greece":
+        clauses.append("shipping_method = 'delivery' AND delivery_country = 'greece'")
     elif shipping == "other":
         clauses.append("shipping_method = 'delivery' AND delivery_country = 'other'")
     needle = (q or "").strip()
@@ -619,7 +621,7 @@ def order_shipping_counts(
     date_to: str | None = None,
     status: str | None = None,
 ) -> dict[str, int]:
-    """Counts for pickup vs Cyprus vs international filter chips."""
+    """Counts for pickup vs Cyprus vs Greece vs legacy-international filter chips."""
     base, params = _order_filter_sql(
         status=status,
         q=q,
@@ -627,23 +629,35 @@ def order_shipping_counts(
         date_from=date_from,
         date_to=date_to,
     )
+    joiner = " AND " if base else " WHERE "
     with get_connection() as conn:
         total = conn.execute(f"SELECT COUNT(*) FROM orders{base}", tuple(params)).fetchone()[0]
         pickup = conn.execute(
-            f"SELECT COUNT(*) FROM orders{base} {'AND' if base else 'WHERE'} shipping_method = 'pickup'",
+            f"SELECT COUNT(*) FROM orders{base}{joiner}shipping_method = 'pickup'",
             tuple(params),
         ).fetchone()[0]
         cyprus = conn.execute(
-            f"SELECT COUNT(*) FROM orders{base} {'AND' if base else 'WHERE'} "
+            f"SELECT COUNT(*) FROM orders{base}{joiner}"
             "shipping_method = 'delivery' AND delivery_country = 'cyprus'",
             tuple(params),
         ).fetchone()[0]
+        greece = conn.execute(
+            f"SELECT COUNT(*) FROM orders{base}{joiner}"
+            "shipping_method = 'delivery' AND delivery_country = 'greece'",
+            tuple(params),
+        ).fetchone()[0]
         other = conn.execute(
-            f"SELECT COUNT(*) FROM orders{base} {'AND' if base else 'WHERE'} "
+            f"SELECT COUNT(*) FROM orders{base}{joiner}"
             "shipping_method = 'delivery' AND delivery_country = 'other'",
             tuple(params),
         ).fetchone()[0]
-    return {"all": int(total), "pickup": int(pickup), "cyprus": int(cyprus), "other": int(other)}
+    return {
+        "all": int(total),
+        "pickup": int(pickup),
+        "cyprus": int(cyprus),
+        "greece": int(greece),
+        "other": int(other),
+    }
 
 
 def order_status_counts(

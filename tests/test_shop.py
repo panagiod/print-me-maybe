@@ -10,6 +10,7 @@ from src.main import app
 from src.models import (
     CYPRUS_SHIPPING_CENTS,
     INTERNATIONAL_SHIPPING_CENTS,
+    format_shipping_address,
     order_total_cents,
     shipping_cents,
     shipping_method_label,
@@ -81,11 +82,20 @@ def test_category_filter() -> None:
 def test_shipping_calculation() -> None:
     assert shipping_cents("pickup") == 0
     assert shipping_cents("delivery", "cyprus") == CYPRUS_SHIPPING_CENTS
+    assert shipping_cents("delivery", "greece") == INTERNATIONAL_SHIPPING_CENTS
     assert shipping_cents("delivery", "other") == INTERNATIONAL_SHIPPING_CENTS
+    assert shipping_method_label("delivery", "greece") == "Delivery in Greece"
     assert shipping_method_label("delivery", "other") == "International delivery"
     assert shipping_method_label("delivery", "cyprus") == "Delivery in Cyprus"
     assert order_total_cents(400, "delivery", "cyprus") == 400 + CYPRUS_SHIPPING_CENTS
+    assert order_total_cents(400, "delivery", "greece") == 400 + INTERNATIONAL_SHIPPING_CENTS
     assert order_total_cents(400, "delivery", "other") == 400 + INTERNATIONAL_SHIPPING_CENTS
+    assert format_shipping_address(
+        address_line="10 Syntagma",
+        city="Athens",
+        postal_code="10563",
+        delivery_country="greece",
+    ) == "10 Syntagma\nAthens\n10563\nGreece"
 
 
 def test_add_to_cart_and_checkout_with_shipping() -> None:
@@ -96,8 +106,8 @@ def test_add_to_cart_and_checkout_with_shipping() -> None:
     products = client.get("/api/products").json()
     glasses = next(p for p in products if p["slug"] == "glasses-case")
     subtotal = glasses["price_cents"]
-    shipping = shipping_cents("delivery", "other")
-    total = order_total_cents(subtotal, "delivery", "other")
+    shipping = shipping_cents("delivery", "greece")
+    total = order_total_cents(subtotal, "delivery", "greece")
 
     add = client.post(
         "/cart/add",
@@ -110,7 +120,7 @@ def test_add_to_cart_and_checkout_with_shipping() -> None:
     assert cart.status_code == 200
     assert glasses["name"] in cart.text
     assert "Calculated at checkout" in cart.text
-    assert "International shipping is €10" in cart.text
+    assert "Delivery in Greece is €10" in cart.text
     assert 'data-label="Product"' in cart.text
     assert 'data-label="Qty"' in cart.text
     assert "table-wrap" in cart.text
@@ -121,9 +131,11 @@ def test_add_to_cart_and_checkout_with_shipping() -> None:
             "customer_name": "Test User",
             "customer_email": "test@example.com",
             "shipping_method": "delivery",
-            "delivery_country": "other",
-            "shipping_address": "123 Test St, London",
-            "customer_phone": "+357 99 123456",
+            "delivery_country": "greece",
+            "address_line": "10 Syntagma Sq",
+            "city": "Athens",
+            "postal_code": "10563",
+            "customer_phone": "+30 210 1234567",
             "customer_notes": "navy, name Eleni",
         },
     )
@@ -140,12 +152,19 @@ def test_add_to_cart_and_checkout_with_shipping() -> None:
     assert glasses["name"] in detail.text
     assert f"€{shipping / 100:.2f}" in detail.text or "Free" in detail.text
     assert "navy, name Eleni" in detail.text
+    assert "10 Syntagma Sq" in detail.text
+    assert "Athens" in detail.text
+    assert "10563" in detail.text
+    assert "Greece" in detail.text
     from src.store import get_order
 
     order = get_order(int(order_id))
     assert order is not None
     assert order.customer_notes == "navy, name Eleni"
-    assert order.customer_phone == "+357 99 123456"
+    assert order.customer_phone == "+30 210 1234567"
+    assert order.delivery_country == "greece"
+    assert order.shipping_label == "Delivery in Greece"
+    assert order.shipping_address == "10 Syntagma Sq\nAthens\n10563\nGreece"
 
 
 def test_pickup_checkout_is_free() -> None:
@@ -188,7 +207,9 @@ def test_cyprus_delivery_charges_standard_shipping() -> None:
             "customer_email": "cyprus@example.com",
             "shipping_method": "delivery",
             "delivery_country": "cyprus",
-            "shipping_address": "12 Engine St, Nicosia",
+            "address_line": "12 Engine St",
+            "city": "Nicosia",
+            "postal_code": "1010",
             "customer_phone": "+357 99 123456",
         },
     )
@@ -203,6 +224,10 @@ def test_cyprus_delivery_charges_standard_shipping() -> None:
     assert order.shipping_method == "delivery"
     assert order.delivery_country == "cyprus"
     assert order.shipping_label == "Delivery in Cyprus"
+    assert "12 Engine St" in order.shipping_address
+    assert "Nicosia" in order.shipping_address
+    assert "1010" in order.shipping_address
+    assert "Cyprus" in order.shipping_address
 
 
 def test_admin_requires_login() -> None:
@@ -570,10 +595,14 @@ def test_delivery_checkout_requires_phone() -> None:
     page = client.get("/checkout")
     assert 'name="customer_notes"' in page.text
     assert 'name="customer_phone"' in page.text
-    assert "International" in page.text
+    assert "Greece" in page.text
+    assert "International" not in page.text
     assert "Outside Cyprus" not in page.text
     assert "choice-card" in page.text
     assert 'name="delivery_country"' in page.text
+    assert 'name="address_line"' in page.text
+    assert 'name="city"' in page.text
+    assert 'name="postal_code"' in page.text
     assert 'name="shipping_method"' in page.text
     assert "Pay with cash at pick up" in page.text
     assert 'id="pay-cash-btn"' in page.text
@@ -587,11 +616,42 @@ def test_delivery_checkout_requires_phone() -> None:
             "customer_email": "nophone@example.com",
             "shipping_method": "delivery",
             "delivery_country": "cyprus",
-            "shipping_address": "12 Engine St",
+            "address_line": "12 Engine St",
+            "city": "Nicosia",
+            "postal_code": "1010",
         },
     )
     assert blocked.status_code == 400
     assert "phone" in blocked.text.lower()
+
+    missing_address = client.post(
+        "/checkout",
+        data={
+            "customer_name": "No Address",
+            "customer_email": "noaddr@example.com",
+            "shipping_method": "delivery",
+            "delivery_country": "cyprus",
+            "customer_phone": "+357 99 123456",
+        },
+    )
+    assert missing_address.status_code == 400
+    assert "street" in missing_address.text.lower()
+
+    rejected_other = client.post(
+        "/checkout",
+        data={
+            "customer_name": "Old Country",
+            "customer_email": "old@example.com",
+            "shipping_method": "delivery",
+            "delivery_country": "other",
+            "address_line": "1 High St",
+            "city": "London",
+            "postal_code": "SW1A 1AA",
+            "customer_phone": "+44 20 12345678",
+        },
+    )
+    assert rejected_other.status_code == 400
+    assert "greece" in rejected_other.text.lower()
 
 
 def test_sold_out_product_hides_add_to_cart() -> None:
@@ -640,8 +700,24 @@ def test_order_list_search_and_shipping_filter() -> None:
             "customer_email": "nicos@example.com",
             "shipping_method": "delivery",
             "delivery_country": "cyprus",
-            "shipping_address": "1 Ledra",
+            "address_line": "1 Ledra",
+            "city": "Nicosia",
+            "postal_code": "1010",
             "customer_phone": "+357 99 111111",
+        },
+    )
+    client.post("/cart/add", data={"product_id": glasses["id"], "quantity": 1})
+    client.post(
+        "/checkout",
+        data={
+            "customer_name": "Athens Friend",
+            "customer_email": "athens@example.com",
+            "shipping_method": "delivery",
+            "delivery_country": "greece",
+            "address_line": "10 Syntagma",
+            "city": "Athens",
+            "postal_code": "10563",
+            "customer_phone": "+30 210 1234567",
         },
     )
     client.post("/admin/login", data={"password": "printmemaybe"})
@@ -654,6 +730,11 @@ def test_order_list_search_and_shipping_filter() -> None:
     cyprus = client.get("/admin/orders?shipping=cyprus")
     assert "Nicos Courier" in cyprus.text
     assert "Eleni Search" not in cyprus.text
+    assert "Athens Friend" not in cyprus.text
+    greece = client.get("/admin/orders?shipping=greece")
+    assert "Athens Friend" in greece.text
+    assert "Nicos Courier" not in greece.text
+    assert "Greece delivery" in client.get("/admin/orders").text
 
 
 def test_order_list_date_filter_and_sort() -> None:

@@ -32,7 +32,13 @@ PAYMENT_STATUS_LABELS = {
 CYPRUS_SHIPPING_CENTS = 350
 INTERNATIONAL_SHIPPING_CENTS = 1000
 SHIPPING_METHODS = ("pickup", "delivery")
-DELIVERY_COUNTRIES = ("cyprus", "other")
+CHECKOUT_DELIVERY_COUNTRIES = ("cyprus", "greece")
+DELIVERY_COUNTRIES = ("cyprus", "greece", "other")
+COUNTRY_LABELS = {
+    "cyprus": "Cyprus",
+    "greece": "Greece",
+    "other": "International",
+}
 PAYMENT_METHODS = ("card", "cash")
 PICKUP_ADDRESS_LABEL = "Pick up at studio"
 
@@ -53,6 +59,8 @@ def shipping_method_label(shipping_method: str, delivery_country: str | None = N
     """Human-readable fulfillment method for admin, emails, and order pages."""
     if shipping_method == "pickup":
         return "Pick up at studio"
+    if delivery_country == "greece":
+        return "Delivery in Greece"
     if delivery_country == "other":
         return "International delivery"
     if shipping_method == "delivery":
@@ -143,12 +151,34 @@ def format_local_time(raw: str) -> str:
 
 
 def shipping_cents(shipping_method: str, delivery_country: str | None = None) -> int:
-    """Shipping is chosen at checkout: pick-up is free; Cyprus delivery is €3.50; international is €10."""
+    """Shipping is chosen at checkout: pick-up is free; Cyprus €3.50; Greece (and legacy international) €10."""
     if shipping_method == "pickup":
         return 0
-    if delivery_country == "other":
+    if delivery_country in ("greece", "other"):
         return INTERNATIONAL_SHIPPING_CENTS
     return CYPRUS_SHIPPING_CENTS
+
+
+def format_shipping_address(
+    *,
+    address_line: str = "",
+    city: str = "",
+    postal_code: str = "",
+    delivery_country: str = "",
+    fallback: str = "",
+) -> str:
+    """Join street, city, postcode, and country into one stored address block."""
+    country_name = COUNTRY_LABELS.get((delivery_country or "").strip().lower(), "")
+    parts = [
+        (address_line or "").strip(),
+        (city or "").strip(),
+        (postal_code or "").strip(),
+        country_name,
+    ]
+    composed = "\n".join(part for part in parts if part)
+    if composed:
+        return composed
+    return (fallback or "").strip()
 
 
 def order_total_cents(subtotal_cents: int, shipping_method: str, delivery_country: str | None = None) -> int:

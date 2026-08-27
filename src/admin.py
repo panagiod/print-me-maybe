@@ -75,10 +75,11 @@ templates.env.globals["format_money"] = format_money
 templates.env.filters["thumb"] = image_thumb_url
 logger = logging.getLogger(__name__)
 
-SHIPPING_FILTERS = ("pickup", "cyprus", "other")
+SHIPPING_FILTERS = ("pickup", "cyprus", "greece", "other")
 SHIPPING_FILTER_LABELS = {
     "pickup": "Pickup",
     "cyprus": "Cyprus delivery",
+    "greece": "Greece delivery",
     "other": "International",
 }
 MAIL_BANNERS = {
