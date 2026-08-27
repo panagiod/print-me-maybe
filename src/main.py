@@ -192,7 +192,7 @@ def home(request: Request, category: str | None = None) -> Any:
 @app.get("/product/{slug}", response_class=HTMLResponse)
 def product_detail(request: Request, slug: str, sold_out: str | None = None) -> Any:
     product = get_product_by_slug(slug)
-    if not product:
+    if not product or product.hidden:
         raise HTTPException(status_code=404, detail="Product not found")
 
     cart = get_cart(request)
@@ -211,9 +211,11 @@ def product_detail(request: Request, slug: str, sold_out: str | None = None) -> 
 @app.post("/cart/add")
 def cart_add(request: Request, product_id: int = Form(...), quantity: int = Form(1)) -> RedirectResponse:
     product = get_product(product_id)
-    if not product or product.stock <= 0:
-        if product:
+    if not product or product.stock <= 0 or product.hidden:
+        if product and not product.hidden:
             return RedirectResponse(url=f"/product/{product.slug}?sold_out=1", status_code=303)
+        if product and product.hidden:
+            return RedirectResponse(url="/", status_code=303)
         return RedirectResponse(url="/", status_code=303)
     cart = get_cart(request)
     key = str(product_id)
@@ -231,7 +233,7 @@ def cart_update(request: Request, product_id: int = Form(...), quantity: int = F
         cart.pop(key, None)
     else:
         product = get_product(product_id)
-        if not product or product.stock <= 0:
+        if not product or product.stock <= 0 or product.hidden:
             cart.pop(key, None)
         else:
             cart[key] = min(max(quantity, 0), product.stock)

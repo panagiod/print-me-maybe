@@ -37,8 +37,11 @@ from src.ratelimit import client_ip
 from src.store import (
     CATEGORIES,
     PLACEHOLDER_IMAGE,
+    add_product_photos,
+    catalog_counts,
     create_product,
     delete_product,
+    delete_product_photo,
     euros_to_cents,
     get_order,
     get_product,
@@ -48,6 +51,8 @@ from src.store import (
     order_shipping_counts,
     order_status_counts,
     set_payment_status,
+    set_product_cover,
+    set_product_hidden,
     set_product_stock,
     stripe_session_id_for_order,
     unique_slug,
@@ -56,7 +61,7 @@ from src.store import (
     update_order_tracking,
     update_product,
 )
-from src.uploads import save_product_image
+from src.uploads import save_product_images
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 router = APIRouter(prefix="/admin")
@@ -441,21 +446,83 @@ def order_resend_shipped(request: Request, order_id: int) -> Any:
 
 
 @router.get("/stock")
-def stock_page(request: Request) -> Any:
+def stock_page(
+    request: Request,
+    category: str | None = None,
+    q: str | None = None,
+    visibility: str | None = None,
+    added: str | None = None,
+) -> Any:
     gate = require_admin(request)
     if gate:
         return gate
+    if visibility not in {None, "listed", "hidden"}:
+        visibility = None
+    if category and category not in CATEGORIES:
+        category = None
+    needle = (q or "").strip()
     return templates.TemplateResponse(
         request,
         "admin_stock.html",
         _ctx(
             request,
             {
-                "products": list_all_products(),
+                "products": list_all_products(category=category, q=needle, visibility=visibility),
                 "categories": CATEGORIES,
+                "catalog_counts": catalog_counts(),
+                "active_category": category,
+                "active_visibility": visibility,
+                "search_q": needle,
+                "added": bool(added),
                 "error": None,
             },
         ),
+    )
+
+
+def _product_form_ctx(
+    *,
+    error: str | None = None,
+    form_name: str = "",
+    form_description: str = "",
+    form_price: str = "",
+    form_category: str = "",
+    form_stock: int = 1,
+    product=None,
+) -> dict[str, Any]:
+    return {
+        "categories": CATEGORIES,
+        "error": error,
+        "form_name": form_name,
+        "form_description": form_description,
+        "form_price": form_price,
+        "form_category": form_category,
+        "form_stock": form_stock,
+        "product": product,
+    }
+
+
+def _upload_list(*groups: list[UploadFile] | UploadFile | None) -> list[UploadFile]:
+    files: list[UploadFile] = []
+    for group in groups:
+        if group is None:
+            continue
+        if isinstance(group, list):
+            files.extend(group)
+        else:
+            files.append(group)
+    return [item for item in files if getattr(item, "filename", None)]
+
+
+@router.get("/products/new")
+def product_new_page(request: Request) -> Any:
+    gate = require_admin(request)
+    if gate:
+        return gate
+    return templates.TemplateResponse(
+        request,
+        "admin_product_new.html",
+        _ctx(request, _product_form_ctx()),
     )
 
 
@@ -468,6 +535,7 @@ def product_create(
     category: str = Form(...),
     stock: int = Form(0),
     image: UploadFile | None = File(None),
+    images: list[UploadFile] | None = File(None),
 ) -> Any:
     gate = require_admin(request)
     if gate:
@@ -476,19 +544,17 @@ def product_create(
     def error_page(message: str, status_code: int = 400):
         return templates.TemplateResponse(
             request,
-            "admin_stock.html",
+            "admin_product_new.html",
             _ctx(
                 request,
-                {
-                    "products": list_all_products(),
-                    "categories": CATEGORIES,
-                    "error": message,
-                    "form_name": name,
-                    "form_description": description,
-                    "form_price": price,
-                    "form_category": category,
-                    "form_stock": stock,
-                },
+                _product_form_ctx(
+                    error=message,
+                    form_name=name,
+                    form_description=description,
+                    form_price=price,
+                    form_category=category,
+                    form_stock=stock,
+                ),
             ),
             status_code=status_code,
         )
@@ -496,22 +562,21 @@ def product_create(
     try:
         price_cents = euros_to_cents(price)
         slug = unique_slug(name)
-        image_url = PLACEHOLDER_IMAGE
-        if image is not None and image.filename:
-            image_url = save_product_image(slug, image)
+        urls = save_product_images(slug, _upload_list(image, images))
         create_product(
             name=name,
             description=description,
             price_cents=price_cents,
             category=category,
             stock=stock,
-            image_url=image_url,
+            image_url=urls[0] if urls else PLACEHOLDER_IMAGE,
             slug=slug,
+            extra_image_urls=urls[1:],
         )
     except ValueError as exc:
         return error_page(str(exc))
 
-    return RedirectResponse(url="/admin/stock", status_code=303)
+    return RedirectResponse(url="/admin/stock?added=1", status_code=303)
 
 
 @router.get("/products/{product_id}/edit")
@@ -527,16 +592,14 @@ def product_edit_page(request: Request, product_id: int) -> Any:
         "admin_product_edit.html",
         _ctx(
             request,
-            {
-                "product": product,
-                "categories": CATEGORIES,
-                "error": None,
-                "form_name": product.name,
-                "form_description": product.description,
-                "form_price": f"{product.price_cents / 100:.2f}",
-                "form_category": product.category,
-                "form_stock": product.stock,
-            },
+            _product_form_ctx(
+                product=product,
+                form_name=product.name,
+                form_description=product.description,
+                form_price=f"{product.price_cents / 100:.2f}",
+                form_category=product.category,
+                form_stock=product.stock,
+            ),
         ),
     )
 
@@ -551,6 +614,7 @@ def product_edit_submit(
     category: str = Form(...),
     stock: int = Form(0),
     image: UploadFile | None = File(None),
+    images: list[UploadFile] | None = File(None),
 ) -> Any:
     gate = require_admin(request)
     if gate:
@@ -560,30 +624,27 @@ def product_edit_submit(
         raise HTTPException(status_code=404, detail="Product not found")
 
     def error_page(message: str, status_code: int = 400):
+        current = get_product(product_id) or product
         return templates.TemplateResponse(
             request,
             "admin_product_edit.html",
             _ctx(
                 request,
-                {
-                    "product": product,
-                    "categories": CATEGORIES,
-                    "error": message,
-                    "form_name": name,
-                    "form_description": description,
-                    "form_price": price,
-                    "form_category": category,
-                    "form_stock": stock,
-                },
+                _product_form_ctx(
+                    error=message,
+                    product=current,
+                    form_name=name,
+                    form_description=description,
+                    form_price=price,
+                    form_category=category,
+                    form_stock=stock,
+                ),
             ),
             status_code=status_code,
         )
 
     try:
         price_cents = euros_to_cents(price)
-        image_url = None
-        if image is not None and image.filename:
-            image_url = save_product_image(product.slug, image)
         update_product(
             product_id,
             name=name,
@@ -591,12 +652,38 @@ def product_edit_submit(
             price_cents=price_cents,
             category=category,
             stock=stock,
-            image_url=image_url,
         )
+        urls = save_product_images(product.slug, _upload_list(image, images))
+        if urls:
+            add_product_photos(product_id, urls)
     except ValueError as exc:
         return error_page(str(exc))
 
-    return RedirectResponse(url="/admin/stock", status_code=303)
+    return RedirectResponse(url=f"/admin/products/{product_id}/edit", status_code=303)
+
+
+@router.post("/products/{product_id}/images/{image_id}/cover")
+def product_image_cover(request: Request, product_id: int, image_id: int) -> Any:
+    gate = require_admin(request)
+    if gate:
+        return gate
+    try:
+        set_product_cover(product_id, image_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return RedirectResponse(url=f"/admin/products/{product_id}/edit", status_code=303)
+
+
+@router.post("/products/{product_id}/images/{image_id}/delete")
+def product_image_delete(request: Request, product_id: int, image_id: int) -> Any:
+    gate = require_admin(request)
+    if gate:
+        return gate
+    try:
+        delete_product_photo(product_id, image_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return RedirectResponse(url=f"/admin/products/{product_id}/edit", status_code=303)
 
 
 @router.post("/stock/{product_id}")
@@ -612,11 +699,30 @@ def stock_update(
     return RedirectResponse(url="/admin/stock", status_code=303)
 
 
+@router.post("/products/{product_id}/hide")
+def product_hide(request: Request, product_id: int) -> RedirectResponse:
+    gate = require_admin(request)
+    if gate:
+        return gate
+    set_product_hidden(product_id, True)
+    return RedirectResponse(url="/admin/stock", status_code=303)
+
+
+@router.post("/products/{product_id}/show")
+def product_show(request: Request, product_id: int) -> RedirectResponse:
+    gate = require_admin(request)
+    if gate:
+        return gate
+    set_product_hidden(product_id, False)
+    return RedirectResponse(url="/admin/stock", status_code=303)
+
+
 @router.post("/products/{product_id}/delete")
 def product_delete(request: Request, product_id: int) -> Any:
     gate = require_admin(request)
     if gate:
         return gate
+    product = get_product(product_id)
     try:
         delete_product(product_id)
     except ValueError as exc:
@@ -628,9 +734,16 @@ def product_delete(request: Request, product_id: int) -> Any:
                 {
                     "products": list_all_products(),
                     "categories": CATEGORIES,
+                    "catalog_counts": catalog_counts(),
+                    "active_category": None,
+                    "active_visibility": None,
+                    "search_q": "",
+                    "added": False,
                     "error": str(exc),
+                    "hide_instead": product,
                 },
             ),
             status_code=400,
         )
     return RedirectResponse(url="/admin/stock", status_code=303)
+

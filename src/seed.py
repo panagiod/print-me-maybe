@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from src.db import get_connection
+from src.db import get_connection, sync_product_image_gallery
 
 # 3D listings use captions and euro prices from public @print.me.maybe posts
 # when the post named a price. Items Instagram did not price use starting
@@ -177,3 +177,4 @@ def seed_products() -> None:
             """,
             CATALOG,
         )
+    sync_product_image_gallery()

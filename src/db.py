@@ -165,6 +165,13 @@ def init_schema() -> None:
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_lookup_token ON orders(lookup_token)"
         )
         _backfill_shipping_columns(conn)
+        _ensure_product_catalog_columns(conn)
+
+
+def sync_product_image_gallery() -> None:
+    """Backfill gallery rows for products that only have image_url (e.g. after seed)."""
+    with get_connection() as conn:
+        _ensure_product_catalog_columns(conn)
 
 
 def _backfill_shipping_columns(conn) -> None:
@@ -193,3 +200,31 @@ def _backfill_shipping_columns(conn) -> None:
             "UPDATE orders SET shipping_method = 'delivery', delivery_country = ? WHERE id = ?",
             (country, row["id"]),
         )
+
+
+def _ensure_product_catalog_columns(conn) -> None:
+    """Hidden flag plus a photo gallery, backfilled from the existing cover image."""
+    product_columns = {row[1] for row in conn.execute("PRAGMA table_info(products)").fetchall()}
+    if "hidden" not in product_columns:
+        conn.execute("ALTER TABLE products ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0")
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS product_images (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+            url TEXT NOT NULL,
+            sort_order INTEGER NOT NULL DEFAULT 0
+        )
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO product_images (product_id, url, sort_order)
+        SELECT p.id, p.image_url, 0
+        FROM products p
+        WHERE p.image_url IS NOT NULL AND p.image_url != ''
+          AND NOT EXISTS (
+              SELECT 1 FROM product_images pi WHERE pi.product_id = p.id
+          )
+        """
+    )

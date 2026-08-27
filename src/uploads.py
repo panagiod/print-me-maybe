@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import secrets
 from pathlib import Path
 
 from fastapi import UploadFile
@@ -46,7 +47,17 @@ def save_product_image(slug: str, upload: UploadFile) -> str:
     if len(data) > _MAX_BYTES:
         raise ValueError("Photo must be 5 MB or smaller")
     ext = _extension(upload, data)
-    filename = f"{slug}{ext}"
+    filename = f"{slug}-{secrets.token_hex(4)}{ext}"
     dest = product_images_dir() / filename
     dest.write_bytes(data)
     return f"/media/products/{filename}"
+
+
+def save_product_images(slug: str, uploads: list[UploadFile] | None) -> list[str]:
+    """Save every non-empty upload and return public URLs in order."""
+    urls: list[str] = []
+    for upload in uploads or []:
+        if upload is None or not getattr(upload, "filename", None):
+            continue
+        urls.append(save_product_image(slug, upload))
+    return urls
