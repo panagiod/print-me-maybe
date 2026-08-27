@@ -1189,6 +1189,9 @@ def test_admin_add_page_and_multiple_photos() -> None:
     assert home.text.count('aria-label="Next photo of Gallery Dragon"') == 1
     assert product.gallery[0].thumb_url in home.text
     assert product.gallery[1].thumb_url in home.text
+    css = client.get("/static/css/style.css").text
+    assert "min-width: 100%" in css
+    assert ".gallery-slide-link" in css
     edit = client.get(f"/admin/products/{product.id}/edit")
     assert "Cover" in edit.text
     assert product.gallery[0].thumb_url in edit.text
