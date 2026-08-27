@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 from src.db import get_connection, init_schema
 from src.main import app
-from src.models import STANDARD_SHIPPING_CENTS, order_total_cents, shipping_cents
+from src.models import CYPRUS_SHIPPING_CENTS, INTERNATIONAL_SHIPPING_CENTS, order_total_cents, shipping_cents
 from src.seed import seed_products
 from src.store import list_all_products
 
@@ -73,9 +73,11 @@ def test_category_filter() -> None:
 
 
 def test_shipping_calculation() -> None:
-    assert shipping_cents(400) == STANDARD_SHIPPING_CENTS
-    assert shipping_cents(2500) == 0
-    assert order_total_cents(400) == 400 + STANDARD_SHIPPING_CENTS
+    assert shipping_cents("pickup") == 0
+    assert shipping_cents("delivery", "cyprus") == CYPRUS_SHIPPING_CENTS
+    assert shipping_cents("delivery", "other") == INTERNATIONAL_SHIPPING_CENTS
+    assert order_total_cents(400, "delivery", "cyprus") == 400 + CYPRUS_SHIPPING_CENTS
+    assert order_total_cents(400, "delivery", "other") == 400 + INTERNATIONAL_SHIPPING_CENTS
 
 
 def test_add_to_cart_and_checkout_with_shipping() -> None:
@@ -86,8 +88,8 @@ def test_add_to_cart_and_checkout_with_shipping() -> None:
     products = client.get("/api/products").json()
     glasses = next(p for p in products if p["slug"] == "glasses-case")
     subtotal = glasses["price_cents"]
-    shipping = shipping_cents(subtotal)
-    total = order_total_cents(subtotal)
+    shipping = shipping_cents("delivery", "other")
+    total = order_total_cents(subtotal, "delivery", "other")
 
     add = client.post(
         "/cart/add",
@@ -99,7 +101,7 @@ def test_add_to_cart_and_checkout_with_shipping() -> None:
     cart = client.get("/cart")
     assert cart.status_code == 200
     assert glasses["name"] in cart.text
-    assert "Free shipping on orders over €25.00" in cart.text
+    assert "Calculated at checkout" in cart.text
     assert 'data-label="Product"' in cart.text
     assert 'data-label="Qty"' in cart.text
     assert "table-wrap" in cart.text
@@ -109,7 +111,9 @@ def test_add_to_cart_and_checkout_with_shipping() -> None:
         data={
             "customer_name": "Test User",
             "customer_email": "test@example.com",
-            "shipping_address": "123 Test St",
+            "shipping_method": "delivery",
+            "delivery_country": "other",
+            "shipping_address": "123 Test St, London",
         },
     )
     assert checkout.status_code == 200
@@ -126,20 +130,52 @@ def test_add_to_cart_and_checkout_with_shipping() -> None:
     assert f"€{shipping / 100:.2f}" in detail.text or "Free" in detail.text
 
 
-def test_free_shipping_on_large_order() -> None:
+def test_pickup_checkout_is_free() -> None:
     init_schema()
     seed_products()
 
     client = TestClient(app)
     products = client.get("/api/products").json()
-    sign = next(p for p in products if p["slug"] == "family-name-sign")
+    glasses = next(p for p in products if p["slug"] == "glasses-case")
+    subtotal = glasses["price_cents"]
 
-    client.post("/cart/add", data={"product_id": sign["id"], "quantity": 1})
+    client.post("/cart/add", data={"product_id": glasses["id"], "quantity": 1})
 
-    cart = client.get("/cart")
-    assert cart.status_code == 200
-    assert "Free" in cart.text
-    assert "Free shipping on orders over €25.00" not in cart.text
+    checkout = client.post(
+        "/checkout",
+        data={
+            "customer_name": "Pick Up Pat",
+            "customer_email": "pickup@example.com",
+            "shipping_method": "pickup",
+        },
+    )
+    assert checkout.status_code == 200
+    assert f"€{subtotal / 100:.2f}" in checkout.text
+
+
+def test_cyprus_delivery_charges_standard_shipping() -> None:
+    init_schema()
+    seed_products()
+
+    client = TestClient(app)
+    products = client.get("/api/products").json()
+    glasses = next(p for p in products if p["slug"] == "glasses-case")
+    total = glasses["price_cents"] + CYPRUS_SHIPPING_CENTS
+
+    client.post("/cart/add", data={"product_id": glasses["id"], "quantity": 1})
+    checkout = client.post(
+        "/checkout",
+        data={
+            "customer_name": "Cyprus Customer",
+            "customer_email": "cyprus@example.com",
+            "shipping_method": "delivery",
+            "delivery_country": "cyprus",
+            "shipping_address": "12 Engine St, Nicosia",
+        },
+    )
+    assert checkout.status_code == 200
+    assert f"€{total / 100:.2f}" in checkout.text
+    assert "€3.50" in checkout.text
 
 
 def test_admin_requires_login() -> None:
@@ -165,6 +201,8 @@ def test_admin_orders_and_stock() -> None:
         data={
             "customer_name": "Ada Lovelace",
             "customer_email": "ada@example.com",
+            "shipping_method": "delivery",
+            "delivery_country": "cyprus",
             "shipping_address": "12 Engine St",
         },
     )
@@ -226,7 +264,7 @@ def test_cancel_restocks_and_reopen_deducts() -> None:
         data={
             "customer_name": "Cancel Case",
             "customer_email": "cancel@example.com",
-            "shipping_address": "9 Restock Rd",
+            "shipping_method": "pickup",
         },
     )
     order_id = checkout.text.split("#")[1].split("<")[0]
@@ -320,6 +358,58 @@ def test_admin_add_product_shows_in_shop() -> None:
     seed_products()
     still_there = next(p for p in list_all_products() if p.slug == "studio-test-vase")
     assert still_there.price_cents == 1250
+
+
+def test_admin_delete_product() -> None:
+    init_schema()
+    seed_products()
+
+    client = TestClient(app)
+    client.post("/admin/login", data={"password": "printmemaybe"})
+    created = client.post(
+        "/admin/products",
+        data={
+            "name": "Delete Me Mug",
+            "description": "Temporary product.",
+            "price": "8.00",
+            "category": "3D Prints",
+            "stock": "2",
+        },
+        follow_redirects=False,
+    )
+    assert created.status_code == 303
+
+    product = next(p for p in list_all_products() if p.slug == "delete-me-mug")
+    deleted = client.post(
+        f"/admin/products/{product.id}/delete",
+        follow_redirects=False,
+    )
+    assert deleted.status_code == 303
+    assert all(p.slug != "delete-me-mug" for p in list_all_products())
+
+
+def test_admin_cannot_delete_ordered_product() -> None:
+    init_schema()
+    seed_products()
+
+    client = TestClient(app)
+    products = client.get("/api/products").json()
+    glasses = next(p for p in products if p["slug"] == "glasses-case")
+    client.post("/cart/add", data={"product_id": glasses["id"], "quantity": 1})
+    client.post(
+        "/checkout",
+        data={
+            "customer_name": "Buyer",
+            "customer_email": "buyer@example.com",
+            "shipping_method": "pickup",
+        },
+    )
+
+    client.post("/admin/login", data={"password": "printmemaybe"})
+    blocked = client.post(f"/admin/products/{glasses['id']}/delete")
+    assert blocked.status_code == 400
+    assert "ordered" in blocked.text.lower()
+    assert any(p.id == glasses["id"] for p in list_all_products())
 
 
 def test_admin_add_product_rejects_bad_price() -> None:

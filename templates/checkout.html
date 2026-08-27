@@ -10,22 +10,62 @@
 {% endif %}
 
 <div class="checkout-layout">
-  <form action="/checkout" method="post" class="checkout-form">
+  <form
+    action="/checkout"
+    method="post"
+    class="checkout-form"
+    id="checkout-form"
+    data-subtotal-cents="{{ subtotal_cents }}"
+    data-cyprus-shipping-cents="{{ cyprus_shipping_cents }}"
+    data-international-shipping-cents="{{ international_shipping_cents }}"
+  >
     <fieldset>
-      <legend>Shipping details</legend>
+      <legend>Your details</legend>
       <label>
         Full name
-        <input type="text" name="customer_name" required autocomplete="name">
+        <input type="text" name="customer_name" required autocomplete="name" value="{{ form_customer_name or '' }}">
       </label>
       <label>
         Email
-        <input type="email" name="customer_email" required autocomplete="email">
+        <input type="email" name="customer_email" required autocomplete="email" value="{{ form_customer_email or '' }}">
+      </label>
+    </fieldset>
+
+    <fieldset>
+      <legend>Delivery</legend>
+      <div class="shipping-options">
+        <label class="shipping-option">
+          <input type="radio" name="shipping_method" value="pickup" required
+            {% if form_shipping_method|default('pickup') == 'pickup' %}checked{% endif %}>
+          Pick up at studio <span class="free-badge">Free</span>
+        </label>
+        <label class="shipping-option">
+          <input type="radio" name="shipping_method" value="delivery" required
+            {% if form_shipping_method == 'delivery' %}checked{% endif %}>
+          Delivery
+        </label>
+      </div>
+    </fieldset>
+
+    <fieldset id="delivery-fields" class="delivery-fields">
+      <legend>Delivery address</legend>
+      <label>
+        Destination
+        <select name="delivery_country" id="delivery-country">
+          <option value="cyprus" {% if form_delivery_country|default('cyprus') == 'cyprus' %}selected{% endif %}>
+            Cyprus ({{ cyprus_shipping_display }})
+          </option>
+          <option value="other" {% if form_delivery_country == 'other' %}selected{% endif %}>
+            Outside Cyprus ({{ international_shipping_display }})
+          </option>
+        </select>
       </label>
       <label>
         Address
-        <textarea name="shipping_address" rows="3" required autocomplete="street-address"></textarea>
+        <textarea name="shipping_address" rows="3" autocomplete="street-address" id="shipping-address">{{ form_shipping_address or '' }}</textarea>
       </label>
     </fieldset>
+
     <p class="checkout-note">
       {% if payments_on %}
       You will pay by card on Stripe’s page (EEA cards typically 1.5% + €0.25, paid by the shop). Custom names, photos, or files: DM @print.me.maybe or @lasercraft.27.
@@ -53,7 +93,7 @@
       </div>
       <div class="totals-row">
         <dt>Shipping</dt>
-        <dd>
+        <dd id="shipping-display">
           {% if shipping_cents == 0 %}
           <span class="free-badge">Free</span>
           {% else %}
@@ -63,9 +103,10 @@
       </div>
       <div class="totals-row totals-row-total">
         <dt>Total</dt>
-        <dd><strong>{{ format_money(total_cents) }}</strong></dd>
+        <dd id="total-display"><strong>{{ format_money(total_cents) }}</strong></dd>
       </div>
     </dl>
   </aside>
 </div>
+<script src="/static/js/checkout.js" defer></script>
 {% endblock %}

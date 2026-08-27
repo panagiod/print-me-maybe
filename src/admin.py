@@ -14,7 +14,6 @@ from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from src.models import (
-    FREE_SHIPPING_THRESHOLD_CENTS,
     ORDER_STATUS_LABELS,
     ORDER_STATUSES,
     format_money,
@@ -32,6 +31,7 @@ from src.store import (
     CATEGORIES,
     PLACEHOLDER_IMAGE,
     create_product,
+    delete_product,
     euros_to_cents,
     get_order,
     list_all_products,
@@ -48,7 +48,6 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 router = APIRouter(prefix="/admin")
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 templates.env.globals["format_money"] = format_money
-templates.env.globals["free_shipping_threshold"] = format_money(FREE_SHIPPING_THRESHOLD_CENTS)
 logger = logging.getLogger(__name__)
 
 
@@ -312,4 +311,28 @@ def stock_update(
     if gate:
         return gate
     set_product_stock(product_id, stock)
+    return RedirectResponse(url="/admin/stock", status_code=303)
+
+
+@router.post("/products/{product_id}/delete")
+def product_delete(request: Request, product_id: int) -> Any:
+    gate = require_admin(request)
+    if gate:
+        return gate
+    try:
+        delete_product(product_id)
+    except ValueError as exc:
+        return templates.TemplateResponse(
+            request,
+            "admin_stock.html",
+            _ctx(
+                request,
+                {
+                    "products": list_all_products(),
+                    "categories": CATEGORIES,
+                    "error": str(exc),
+                },
+            ),
+            status_code=400,
+        )
     return RedirectResponse(url="/admin/stock", status_code=303)

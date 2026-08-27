@@ -70,7 +70,7 @@ def test_checkout_blocks_repeat_orders(monkeypatch) -> None:
             data={
                 "customer_name": "Ada Lovelace",
                 "customer_email": "ada@example.com",
-                "shipping_address": "12 Engine St",
+                "shipping_method": "pickup",
             },
         )
         return result.status_code

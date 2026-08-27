@@ -10,7 +10,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Iterable
 
 from src.db import get_connection
-from src.models import CartLine, Order, OrderItem, Product, order_total_cents
+from src.models import CartLine, Order, OrderItem, Product
 
 CATEGORIES = ("3D Prints", "Laser Engraving")
 PLACEHOLDER_IMAGE = "/static/images/products/placeholder.svg"
@@ -159,6 +159,23 @@ def set_product_stock(product_id: int, stock: int) -> None:
             "UPDATE products SET stock = ? WHERE id = ?",
             (max(0, stock), product_id),
         )
+
+
+def delete_product(product_id: int) -> None:
+    """Remove a product from the catalog. Fails if it appears on a past order."""
+    with get_connection() as conn:
+        row = conn.execute("SELECT id FROM products WHERE id = ?", (product_id,)).fetchone()
+        if not row:
+            raise ValueError("Product not found")
+        ordered = conn.execute(
+            "SELECT 1 FROM order_items WHERE product_id = ? LIMIT 1",
+            (product_id,),
+        ).fetchone()
+        if ordered:
+            raise ValueError(
+                "This product has been ordered before. Set stock to 0 to hide it from the shop."
+            )
+        conn.execute("DELETE FROM products WHERE id = ?", (product_id,))
 
 
 def create_product(
@@ -339,13 +356,14 @@ def place_order(
     customer_email: str,
     shipping_address: str,
     lines: list[CartLine],
+    shipping_cents: int = 0,
     paid: bool = False,
 ) -> int:
     """Persist an order and decrement stock atomically."""
     if not lines:
         raise ValueError("Cart is empty")
 
-    total = order_total_cents(cart_total_cents(lines))
+    total = cart_total_cents(lines) + max(0, shipping_cents)
     payment_status = "paid" if paid else "unpaid"
 
     with get_connection() as conn:
