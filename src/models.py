@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -53,10 +54,29 @@ def shipping_method_label(shipping_method: str, delivery_country: str | None = N
     if shipping_method == "pickup":
         return "Pick up at studio"
     if delivery_country == "other":
-        return "Delivery outside Cyprus"
+        return "International delivery"
     if shipping_method == "delivery":
         return "Delivery in Cyprus"
     return ""
+
+
+PRODUCT_CODE_PREFIXES = {
+    "3D Prints": "3D",
+    "Laser Engraving": "LC",
+}
+
+
+def product_code_prefix(category: str) -> str:
+    return PRODUCT_CODE_PREFIXES.get(category, "PMM")
+
+
+def normalize_product_code(raw: str | None) -> str:
+    """Uppercase A–Z, digits, and hyphens, max 16 characters."""
+    text = (raw or "").strip().upper()
+    text = re.sub(r"[\s_]+", "-", text)
+    text = re.sub(r"[^A-Z0-9-]", "", text)
+    text = re.sub(r"-{2,}", "-", text).strip("-")
+    return text[:16]
 
 
 def format_money(cents: int) -> str:
@@ -123,7 +143,7 @@ def format_local_time(raw: str) -> str:
 
 
 def shipping_cents(shipping_method: str, delivery_country: str | None = None) -> int:
-    """Shipping is chosen at checkout: pick-up is free; Cyprus delivery is €3.50; outside Cyprus is €10."""
+    """Shipping is chosen at checkout: pick-up is free; Cyprus delivery is €3.50; international is €10."""
     if shipping_method == "pickup":
         return 0
     if delivery_country == "other":
@@ -163,6 +183,7 @@ class Product:
     stock: int
     hidden: bool = False
     gallery: tuple[ProductImage, ...] = ()
+    code: str = ""
 
     @classmethod
     def from_row(cls, row: Any, *, gallery: tuple[ProductImage, ...] = ()) -> "Product":
@@ -181,6 +202,7 @@ class Product:
             stock=row["stock"],
             hidden=hidden,
             gallery=photos,
+            code=(row["code"] or "").strip() if "code" in keys and row["code"] else "",
         )
 
     @property
@@ -224,6 +246,13 @@ class OrderItem:
     product_name: str
     quantity: int
     unit_price_cents: int
+    product_code: str = ""
+
+    @property
+    def studio_label(self) -> str:
+        if self.product_code:
+            return f"{self.product_code}  {self.product_name}"
+        return self.product_name
 
     @property
     def line_total_cents(self) -> int:

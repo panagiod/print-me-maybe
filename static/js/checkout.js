@@ -65,11 +65,9 @@
     const payCash = selectedPay() === "cash" && isPickup;
     if (submit) {
       if (payCash) {
-        submit.textContent = "Place order — pay at pick up";
-      } else if (paymentsOn) {
-        submit.textContent = "Pay with card";
+        submit.textContent = submit.getAttribute("data-label-cash") || "Place order — pay cash at pick up";
       } else {
-        submit.textContent = "Place order";
+        submit.textContent = submit.getAttribute("data-label-card") || (paymentsOn ? "Pay with card" : "Place order");
       }
     }
   }

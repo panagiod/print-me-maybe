@@ -18,7 +18,9 @@ from src.models import (
     OrderItem,
     Product,
     ProductImage,
+    normalize_product_code,
     parse_studio_day,
+    product_code_prefix,
     studio_day_utc_bounds,
 )
 
@@ -175,8 +177,9 @@ def list_all_products(
         params.append(category)
     needle = (q or "").strip()
     if needle:
-        clauses.append("name LIKE ?")
-        params.append(f"%{needle}%")
+        clauses.append("(name LIKE ? OR code LIKE ?)")
+        like = f"%{needle}%"
+        params.extend([like, like])
     if visibility == "hidden":
         clauses.append("COALESCE(hidden, 0) = 1")
     elif visibility == "listed":
@@ -241,6 +244,42 @@ def delete_product(product_id: int) -> None:
         conn.execute("DELETE FROM products WHERE id = ?", (product_id,))
 
 
+def _code_taken(conn, code: str, exclude_id: int | None = None) -> bool:
+    if exclude_id is None:
+        row = conn.execute("SELECT id FROM products WHERE code = ?", (code,)).fetchone()
+    else:
+        row = conn.execute(
+            "SELECT id FROM products WHERE code = ? AND id != ?",
+            (code, exclude_id),
+        ).fetchone()
+    return row is not None
+
+
+def allocate_product_code(
+    conn,
+    *,
+    category: str,
+    product_id: int,
+    requested: str = "",
+    exclude_id: int | None = None,
+) -> str:
+    """Return a unique product code, or raise if the typed code is already used."""
+    wanted = normalize_product_code(requested)
+    if wanted:
+        if not _code_taken(conn, wanted, exclude_id):
+            return wanted
+        raise ValueError(f"Product code {wanted} is already in use")
+    prefix = product_code_prefix(category)
+    base = f"{prefix}-{product_id:03d}"
+    if not _code_taken(conn, base, exclude_id):
+        return base
+    for extra in range(2, 100):
+        candidate = f"{base}-{extra}"
+        if not _code_taken(conn, candidate, exclude_id):
+            return candidate
+    raise ValueError("Could not allocate a product code")
+
+
 def create_product(
     *,
     name: str,
@@ -251,6 +290,7 @@ def create_product(
     image_url: str,
     slug: str | None = None,
     extra_image_urls: list[str] | None = None,
+    code: str = "",
 ) -> Product:
     """Insert a product created from the studio admin."""
     cleaned_name = name.strip()
@@ -277,12 +317,19 @@ def create_product(
     with get_connection() as conn:
         cursor = conn.execute(
             """
-            INSERT INTO products (slug, name, description, price_cents, image_url, category, stock, hidden)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 0)
+            INSERT INTO products (slug, name, description, price_cents, image_url, category, stock, hidden, code)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 0, '')
             """,
             (product_slug, cleaned_name, cleaned_description, price_cents, cover, cleaned_category, qty),
         )
         product_id = int(cursor.lastrowid)
+        allocated = allocate_product_code(
+            conn,
+            category=cleaned_category,
+            product_id=product_id,
+            requested=code,
+        )
+        conn.execute("UPDATE products SET code = ? WHERE id = ?", (allocated, product_id))
         for index, url in enumerate(photos):
             if url and url != PLACEHOLDER_IMAGE:
                 conn.execute(
@@ -303,6 +350,7 @@ def update_product(
     category: str,
     stock: int,
     image_url: str | None = None,
+    code: str | None = None,
 ) -> Product:
     """Update listing fields from the studio edit form. Slug stays the same."""
     existing = get_product(product_id)
@@ -321,15 +369,31 @@ def update_product(
         raise ValueError("Price must be greater than zero")
     photo = existing.image_url
     qty = max(0, stock)
+    requested_code = existing.code if code is None else code
 
     with get_connection() as conn:
+        allocated = allocate_product_code(
+            conn,
+            category=cleaned_category,
+            product_id=product_id,
+            requested=requested_code,
+            exclude_id=product_id,
+        )
         conn.execute(
             """
             UPDATE products
-            SET name = ?, description = ?, price_cents = ?, category = ?, stock = ?
+            SET name = ?, description = ?, price_cents = ?, category = ?, stock = ?, code = ?
             WHERE id = ?
             """,
-            (cleaned_name, cleaned_description, price_cents, cleaned_category, qty, product_id),
+            (
+                cleaned_name,
+                cleaned_description,
+                price_cents,
+                cleaned_category,
+                qty,
+                allocated,
+                product_id,
+            ),
         )
         if image_url and image_url.strip() and image_url.strip() != PLACEHOLDER_IMAGE:
             _append_product_photos(conn, product_id, [image_url.strip()])
@@ -518,16 +582,18 @@ def _order_filter_sql(
     if needle:
         if needle.isdigit():
             clauses.append(
-                "(id = ? OR customer_name LIKE ? OR customer_email LIKE ? OR tracking_number LIKE ?)"
+                "(id = ? OR customer_name LIKE ? OR customer_email LIKE ? OR tracking_number LIKE ?"
+                " OR id IN (SELECT order_id FROM order_items WHERE product_code LIKE ? OR product_name LIKE ?))"
             )
             like = f"%{needle}%"
-            params.extend([int(needle), like, like, like])
+            params.extend([int(needle), like, like, like, like, like])
         else:
             clauses.append(
-                "(customer_name LIKE ? OR customer_email LIKE ? OR tracking_number LIKE ?)"
+                "(customer_name LIKE ? OR customer_email LIKE ? OR tracking_number LIKE ?"
+                " OR id IN (SELECT order_id FROM order_items WHERE product_code LIKE ? OR product_name LIKE ?))"
             )
             like = f"%{needle}%"
-            params.extend([like, like, like])
+            params.extend([like, like, like, like, like])
     start_day = parse_studio_day(date_from)
     end_day = parse_studio_day(date_to)
     if start_day:
@@ -784,7 +850,8 @@ def _order_from_row(conn, row) -> Order:
     item_rows = conn.execute(
         """
         SELECT oi.quantity, oi.unit_price_cents,
-               COALESCE(NULLIF(oi.product_name, ''), p.name, 'Item') AS product_name
+               COALESCE(NULLIF(oi.product_name, ''), p.name, 'Item') AS product_name,
+               COALESCE(NULLIF(oi.product_code, ''), p.code, '') AS product_code
         FROM order_items oi
         LEFT JOIN products p ON p.id = oi.product_id
         WHERE oi.order_id = ?
@@ -797,6 +864,7 @@ def _order_from_row(conn, row) -> Order:
             product_name=item["product_name"],
             quantity=item["quantity"],
             unit_price_cents=item["unit_price_cents"],
+            product_code=item["product_code"] if "product_code" in item.keys() and item["product_code"] else "",
         )
         for item in item_rows
     ]
@@ -1027,8 +1095,8 @@ def place_order(
         for line in lines:
             conn.execute(
                 """
-                INSERT INTO order_items (order_id, product_id, quantity, unit_price_cents, product_name)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO order_items (order_id, product_id, quantity, unit_price_cents, product_name, product_code)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
                 (
                     order_id,
@@ -1036,6 +1104,7 @@ def place_order(
                     line.quantity,
                     line.product.price_cents,
                     line.product.name,
+                    line.product.code,
                 ),
             )
             conn.execute(

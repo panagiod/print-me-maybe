@@ -79,7 +79,7 @@ SHIPPING_FILTERS = ("pickup", "cyprus", "other")
 SHIPPING_FILTER_LABELS = {
     "pickup": "Pickup",
     "cyprus": "Cyprus delivery",
-    "other": "Outside Cyprus",
+    "other": "International",
 }
 MAIL_BANNERS = {
     "sent": ("ok", "Customer email sent."),
@@ -790,6 +790,7 @@ def _product_form_ctx(
     form_price: str = "",
     form_category: str = "",
     form_stock: int = 1,
+    form_code: str = "",
     product=None,
 ) -> dict[str, Any]:
     return {
@@ -800,6 +801,7 @@ def _product_form_ctx(
         "form_price": form_price,
         "form_category": form_category,
         "form_stock": form_stock,
+        "form_code": form_code,
         "product": product,
     }
 
@@ -836,6 +838,7 @@ def product_create(
     price: str = Form(...),
     category: str = Form(...),
     stock: int = Form(0),
+    code: str = Form(""),
     image: UploadFile | None = File(None),
     images: list[UploadFile] | None = File(None),
 ) -> Any:
@@ -856,6 +859,7 @@ def product_create(
                     form_price=price,
                     form_category=category,
                     form_stock=stock,
+                    form_code=code,
                 ),
             ),
             status_code=status_code,
@@ -874,6 +878,7 @@ def product_create(
             image_url=urls[0] if urls else PLACEHOLDER_IMAGE,
             slug=slug,
             extra_image_urls=urls[1:],
+            code=code,
         )
     except ValueError as exc:
         return error_page(str(exc))
@@ -901,6 +906,7 @@ def product_edit_page(request: Request, product_id: int) -> Any:
                 form_price=f"{product.price_cents / 100:.2f}",
                 form_category=product.category,
                 form_stock=product.stock,
+                form_code=product.code,
             ),
         ),
     )
@@ -915,6 +921,7 @@ def product_edit_submit(
     price: str = Form(...),
     category: str = Form(...),
     stock: int = Form(0),
+    code: str = Form(""),
     image: UploadFile | None = File(None),
     images: list[UploadFile] | None = File(None),
 ) -> Any:
@@ -940,6 +947,7 @@ def product_edit_submit(
                     form_price=price,
                     form_category=category,
                     form_stock=stock,
+                    form_code=code,
                 ),
             ),
             status_code=status_code,
@@ -954,6 +962,7 @@ def product_edit_submit(
             price_cents=price_cents,
             category=category,
             stock=stock,
+            code=code,
         )
         urls = save_product_images(product.slug, _upload_list(image, images))
         if urls:

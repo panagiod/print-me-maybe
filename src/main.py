@@ -122,7 +122,7 @@ def normalize_shipping_method(raw: str) -> str:
 def normalize_delivery_country(raw: str | None) -> str:
     country = (raw or "").strip().lower()
     if country not in DELIVERY_COUNTRIES:
-        raise ValueError("Choose Cyprus or outside Cyprus for delivery")
+        raise ValueError("Choose Cyprus or international delivery")
     return country
 
 

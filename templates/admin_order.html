@@ -106,7 +106,7 @@
     <ul class="summary-list">
       {% for item in order.items %}
       <li>
-        <span>{{ item.product_name }} × {{ item.quantity }}</span>
+        <span>{% if item.product_code %}<span class="muted">{{ item.product_code }}</span> {% endif %}{{ item.product_name }} × {{ item.quantity }}</span>
         <span>{{ item.line_total_display }}</span>
       </li>
       {% endfor %}

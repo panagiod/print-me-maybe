@@ -202,7 +202,7 @@ Resend TXT/MX records for email ([#2](https://github.com/panagiod/print-me-maybe
 
 - Catalog with category filter (3D Prints / Laser Engraving); product pages can show a photo gallery
 - Session cart; quantity cannot exceed stock
-- Shipping chosen at checkout (see [Shipping](#shipping)): pick up free, Cyprus delivery €3.50, outside Cyprus €10
+- Shipping chosen at checkout (see [Shipping](#shipping)): pick up free, Cyprus delivery €3.50, international €10
 - Checkout: name, email, phone (required for delivery), optional order notes, pick-up or delivery, **card (Stripe)** or **cash at pick up**
 - Customer order page at `/order/{unguessable-token}` — status, payment, tracking number, notes (times in Europe/Nicosia)
 - Studio at `/admin` (not linked in public nav): orders (search, shipping filters), tracking, customer/studio notes, copy customer link, resend mail, cash/bank paid, packing slip (print + PDF), cancel (Stripe refund + restock + customer email), catalog with photos, hide/show, add/edit/remove product + gallery
@@ -360,11 +360,11 @@ Two dashboards that are easy to mix up:
 
 ## Shop behaviour
 
-**Catalog.** Seed SKUs live in `src/seed.py` (names, euro prices, photos from public Instagram where a price was named). On boot, missing slugs are inserted. **Existing rows are left as-is** — admin price, name, photo, category, and stock survive deploy/restart. Products added in studio are never overwritten. Each product can have **several photos**; `image_url` is the cover (first gallery image) used on cards and in the cart.
+**Catalog.** Seed products live in `src/seed.py` (names, **product codes**, euro prices, photos from public Instagram where a price was named). On boot, missing slugs are inserted. **Existing rows are left as-is** — admin price, name, photo, category, stock, and code survive deploy/restart. Products added in studio are never overwritten. Each product can have **several photos**; `image_url` is the cover (first gallery image) used on cards and in the cart. Codes (`3D-GLASSES`, `LC-BOARD`, or the next `3D-001` / `LC-001`) show on Stock, packing slips, and studio order emails, and are snapshotted onto each order line.
 
 **Cart.** Stored in the signed session cookie (7 days). Add/update quantity is capped at remaining stock. Zero stock hides a product from the shop and the product page shows **Sold out** (no Add to cart). **Hidden** products (studio toggle) are omitted from the shop and product URLs 404. The cart shows the product subtotal only; shipping is not applied until checkout.
 
-**Checkout.** GET `/checkout` collects name, email, optional phone, optional order notes (colour, name, files), a delivery choice (pick up vs ship), and **payment** (card, or cash if pick up). Delivery requires a destination (Cyprus or outside Cyprus), an address, and a phone number. POST `/checkout` then:
+**Checkout.** GET `/checkout` collects name, email, optional phone, optional order notes (colour, name, files), a delivery choice (pick up vs ship), and **payment** (card, or cash if pick up). Delivery requires a destination (Cyprus or international), an address, and a phone number. POST `/checkout` then:
 
 1. Recalculates shipping from the chosen method and destination (see [Shipping](#shipping)).
 2. **Cash at pick up:** places an Unpaid order immediately (`payment_method=cash`), skips Stripe, emails the customer to bring cash, and empties the cart.
@@ -395,11 +395,11 @@ Rates are decided at checkout, not from cart size. There is no free-shipping thr
 |--------|-------------|--------|-----------------------------|
 | Pick up at studio | — | Free | `shipping_cents("pickup")` → `0` |
 | Delivery | Cyprus | €3.50 | `CYPRUS_SHIPPING_CENTS = 350` |
-| Delivery | Outside Cyprus | €10.00 | `INTERNATIONAL_SHIPPING_CENTS = 1000` |
+| Delivery | International | €10.00 | `INTERNATIONAL_SHIPPING_CENTS = 1000` |
 
-- Cart copy: “Pick up is free. Cyprus delivery is €3.50. Outside Cyprus is €10.”
-- Home hero: “Free pick up; €3.50 delivery in Cyprus; €10 shipping outside Cyprus.”
-- Checkout totals update in the browser when the customer switches pick-up / delivery or Cyprus / outside Cyprus. The server recomputes the same numbers on POST (and again from Stripe metadata after payment).
+- Cart copy: “Pick up is free. Cyprus delivery is €3.50. International shipping is €10.”
+- Home hero: “Free pick up; €3.50 delivery in Cyprus; €10 international shipping.”
+- Checkout totals update in the browser when the customer switches pick-up / delivery or Cyprus / international. The server recomputes the same numbers on POST (and again from Stripe metadata after payment).
 - **Pay with cash at pick up** is offered on checkout when pick up is selected. That places an **Unpaid** order with `payment_method=cash` and does **not** open Stripe. Delivery is card only. Studio **Mark as paid (cash/bank)** when they collect.
 - The `orders` table stores `shipping_method`, `delivery_country`, `shipping_address`, `tracking_number`, `customer_notes`, `customer_phone`, `payment_method`, `archived` (shipped/cancelled orders can leave the inbox), and a combined `total_cents` (subtotal + shipping). Shipping itself is also derived as `total_cents − item subtotal`.
 
@@ -409,17 +409,17 @@ Public nav does not advertise `/admin`. Login: `/admin/login` on your domain (pr
 
 | Page | What it does |
 |------|----------------|
-| `/admin/orders` | Filter by status, shipping (pickup / Cyprus / outside Cyprus), and **date range (Cyprus time)**; **newest / oldest**; search by number, name, email, or tracking; **Inbox vs Archived**; bulk-archive shipped/cancelled in the current view; Paid / Unpaid / Refunded; **Send test email** |
+| `/admin/orders` | Filter by status, shipping (pickup / Cyprus / international), and **date range (Cyprus time)**; **newest / oldest**; search by number, name, email, tracking, or **product code**; **Inbox vs Archived**; bulk-archive shipped/cancelled in the current view; Paid / Unpaid / Refunded; **Send test email** |
 | `/admin/orders/{id}` | Status, **tracking number**, customer notes vs studio notes, phone (`tel:`), copy customer link, resend confirmation (and shipped email), **Mark as paid (cash/bank)**, **Archive** shipped/cancelled (or **Restore to inbox**), print packing slip, **download PDF**, Stripe session id, cancel (Stripe refund if card-paid, restock, email customer) / reopen (blocked if refunded) |
 | `/admin/orders/{id}/print` | Packing slip (print hides the admin chrome) |
 | `/admin/orders/{id}/print.pdf` | Same slip as a downloadable PDF |
-| `/admin/stock` | Catalog with **photos**, search, category and listed/hidden chips; qty / hide / show save in place; **Add product**; **Remove** (confirm) |
-| `/admin/products/new` | Add a product with photo preview (several photos allowed; first is the cover) |
-| `/admin/products/{id}/edit` | Name/price/copy/stock; **current photos**; add/remove/set cover; view in shop |
+| `/admin/stock` | Catalog with **photos** and **product codes**; search by name or code; category and listed/hidden chips; qty / hide / show save in place; **Add product**; **Remove** (confirm) |
+| `/admin/products/new` | Add a product with optional **product code** (blank assigns the next 3D/LC code), photo preview (several photos allowed; first is the cover) |
+| `/admin/products/{id}/edit` | Name/price/copy/stock/**code**; **current photos**; add/remove/set cover; view in shop |
 
 ### Daily order flow
 
-1. Open **Orders**. The default **Inbox** hides archived shipped and cancelled orders. New **card** checkouts show **Paid**. Cash-at-pick-up orders show **Unpaid · cash**. Use search, date From/To (Cyprus time), Newest/Oldest, or Pickup / Cyprus / Outside Cyprus chips on packing day.
+1. Open **Orders**. The default **Inbox** hides archived shipped and cancelled orders. New **card** checkouts show **Paid**. Cash-at-pick-up orders show **Unpaid · cash**. Use search, date From/To (Cyprus time), Newest/Oldest, or Pickup / Cyprus / International chips on packing day.
 2. Open the order. Set status **In progress** then **Ready to ship** as you work. Ready emails the customer once (pickup: collect at studio; delivery: packed for courier). Studio notes are yours; customer notes came from checkout.
 3. When it leaves: set status **Shipped**. For **delivery**, paste the courier number in **Tracking number** and Save — the customer is emailed only when a tracking number exists. Pickup customers get a collect-at-studio email (no tracking nag).
 4. You can add the tracking number later; saving a new number on an already-shipped delivery emails the customer again.
@@ -448,7 +448,7 @@ Delivery cannot be cash — those orders still go to Stripe Checkout.
 
 Studio **Stock** is a photo grid. Search by name, filter by line (3D / laser) or Listed / Hidden.
 
-**Add a product.** `/admin/products/new` — name, description, price, category, stock, and one or more photos (preview before save). After save you return to Stock with an “added” banner.
+**Add a product.** `/admin/products/new` — name, description, price, category, **product code** (optional), stock, and one or more photos (preview before save). After save you return to Stock with an “added” banner. Leave the code blank to get the next `3D-001` or `LC-001`.
 
 **Photos.** Edit shows the current gallery. The **cover** is the shop card and cart thumb; extra photos appear as a gallery on `/product/{slug}`. You can add files, **Make cover**, or **Remove** a photo. Uploads (JPG/PNG/WebP/GIF, 5 MB each) are stored uniquely under `DATA_DIR/product-images`. **Pillow** auto-rotates, strips EXIF, writes a display image (max 1600px) and a **thumb** (max 400px). Catalog cards, cart, and gallery thumbs use the thumb; the product page main image uses the display file.
 

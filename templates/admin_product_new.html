@@ -34,6 +34,11 @@
       </select>
     </label>
     <label>
+      Product code
+      <input type="text" name="code" value="{{ form_code or '' }}" maxlength="16" placeholder="3D-001" autocomplete="off">
+    </label>
+    <p class="field-hint">Leave blank to assign the next code (3D-001, LC-001). Shown on stock, packing slips, and studio order emails.</p>
+    <label>
       Starting stock
       <input type="number" name="stock" min="0" value="{{ form_stock | default(1) }}">
     </label>

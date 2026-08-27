@@ -62,7 +62,7 @@
             Cyprus ({{ cyprus_shipping_display }})
           </option>
           <option value="other" {% if form_delivery_country == 'other' %}selected{% endif %}>
-            Outside Cyprus ({{ international_shipping_display }})
+            International ({{ international_shipping_display }})
           </option>
         </select>
       </label>
@@ -87,12 +87,18 @@
         <label class="shipping-option">
           <input type="radio" name="payment_method" value="card" required
             {% if form_payment_method|default('card') != 'cash' %}checked{% endif %}>
-          Pay with card
+          <span>
+            <strong>Card</strong>
+            <span class="option-detail">Pay now with card</span>
+          </span>
         </label>
         <label class="shipping-option cash-pickup-option" id="pay-cash-option">
           <input type="radio" name="payment_method" value="cash"
             {% if form_payment_method == 'cash' %}checked{% endif %}>
-          Pay with cash at pick up
+          <span>
+            <strong>Cash at pick up</strong>
+            <span class="option-detail">Pay with cash at pick up</span>
+          </span>
         </label>
       </div>
       <p class="field-hint cash-pickup-option">Cash is only for studio pick up. Delivery is card only.</p>
@@ -105,7 +111,9 @@
       Card payments are off until STRIPE_SECRET_KEY is set on the server. You can still place a pick-up order and pay cash at the studio.
       {% endif %}
     </p>
-    <button type="submit" class="btn btn-primary btn-lg" id="checkout-submit">{% if payments_on %}Pay with card{% else %}Place order{% endif %}</button>
+    <button type="submit" class="btn btn-primary btn-lg" id="checkout-submit"
+      data-label-card="{% if payments_on %}Pay with card{% else %}Place order{% endif %}"
+      data-label-cash="Place order — pay cash at pick up">{% if payments_on %}Pay with card{% else %}Place order{% endif %}</button>
   </form>
 
   <aside class="order-summary">

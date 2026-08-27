@@ -7,7 +7,13 @@ from fastapi.testclient import TestClient
 
 from src.db import get_connection, init_schema
 from src.main import app
-from src.models import CYPRUS_SHIPPING_CENTS, INTERNATIONAL_SHIPPING_CENTS, order_total_cents, shipping_cents
+from src.models import (
+    CYPRUS_SHIPPING_CENTS,
+    INTERNATIONAL_SHIPPING_CENTS,
+    order_total_cents,
+    shipping_cents,
+    shipping_method_label,
+)
 from src.seed import seed_products
 from src.store import get_order, list_all_products
 
@@ -76,6 +82,8 @@ def test_shipping_calculation() -> None:
     assert shipping_cents("pickup") == 0
     assert shipping_cents("delivery", "cyprus") == CYPRUS_SHIPPING_CENTS
     assert shipping_cents("delivery", "other") == INTERNATIONAL_SHIPPING_CENTS
+    assert shipping_method_label("delivery", "other") == "International delivery"
+    assert shipping_method_label("delivery", "cyprus") == "Delivery in Cyprus"
     assert order_total_cents(400, "delivery", "cyprus") == 400 + CYPRUS_SHIPPING_CENTS
     assert order_total_cents(400, "delivery", "other") == 400 + INTERNATIONAL_SHIPPING_CENTS
 
@@ -102,6 +110,7 @@ def test_add_to_cart_and_checkout_with_shipping() -> None:
     assert cart.status_code == 200
     assert glasses["name"] in cart.text
     assert "Calculated at checkout" in cart.text
+    assert "International shipping is €10" in cart.text
     assert 'data-label="Product"' in cart.text
     assert 'data-label="Qty"' in cart.text
     assert "table-wrap" in cart.text
@@ -561,6 +570,11 @@ def test_delivery_checkout_requires_phone() -> None:
     page = client.get("/checkout")
     assert 'name="customer_notes"' in page.text
     assert 'name="customer_phone"' in page.text
+    assert "International (" in page.text
+    assert "Outside Cyprus" not in page.text
+    assert "Pay with cash at pick up" in page.text
+    assert "data-label-cash" in page.text
+    assert ">Card<" in page.text or "<strong>Card</strong>" in page.text
     blocked = client.post(
         "/checkout",
         data={
@@ -1004,7 +1018,11 @@ def test_admin_catalog_search_and_hide() -> None:
     search = client.get("/admin/stock?q=Glasses")
     assert "Floral Glasses Case" in search.text
     assert "Minas Tirith" not in search.text
+    by_code = client.get("/admin/stock?q=3D-GLASSES")
+    assert "Floral Glasses Case" in by_code.text
+    assert "Minas Tirith" not in by_code.text
     glasses = next(p for p in list_all_products() if p.slug == "glasses-case")
+    assert glasses.code == "3D-GLASSES"
     assert glasses.listed
     hidden = client.post(
         f"/admin/products/{glasses.id}/hide",
@@ -1051,6 +1069,7 @@ def test_admin_add_page_and_multiple_photos() -> None:
     )
     assert created.status_code == 303
     product = next(p for p in list_all_products() if p.slug == "gallery-dragon")
+    assert product.code == f"3D-{product.id:03d}"
     assert len(product.gallery) == 2
     assert product.image_url == product.gallery[0].url
     shop = client.get(f"/product/{product.slug}")
@@ -1095,4 +1114,67 @@ def test_hide_instead_when_delete_blocked() -> None:
     assert blocked.status_code == 400
     assert "Hide" in blocked.text
     assert f"/admin/products/{glasses['id']}/hide" in blocked.text
+
+
+def test_product_codes_on_stock_orders_and_slips() -> None:
+    from src.store import create_product, update_product
+
+    init_schema()
+    seed_products()
+    client = TestClient(app)
+    client.post("/admin/login", data={"password": "printmemaybe"})
+    glasses = next(p for p in list_all_products() if p.slug == "glasses-case")
+    assert glasses.code == "3D-GLASSES"
+
+    with pytest.raises(ValueError, match="already in use"):
+        create_product(
+            name="Studio Coaster",
+            description="Duplicate code.",
+            price_cents=900,
+            category="Laser Engraving",
+            stock=4,
+            image_url="/static/images/products/placeholder.svg",
+            code="lc-board",
+        )
+
+    created = create_product(
+        name="Studio Coaster",
+        description="Custom code.",
+        price_cents=900,
+        category="Laser Engraving",
+        stock=4,
+        image_url="/static/images/products/placeholder.svg",
+        code="lc-custom",
+    )
+    assert created.code == "LC-CUSTOM"
+    updated = update_product(
+        created.id,
+        name=created.name,
+        description=created.description,
+        price_cents=created.price_cents,
+        category=created.category,
+        stock=created.stock,
+        code="lc-custom-2",
+    )
+    assert updated.code == "LC-CUSTOM-2"
+
+    client.post("/cart/add", data={"product_id": glasses.id, "quantity": 1})
+    checkout = client.post(
+        "/checkout",
+        data={
+            "customer_name": "Code Buyer",
+            "customer_email": "codebuyer@example.com",
+            "shipping_method": "pickup",
+        },
+    )
+    order_id = int(checkout.text.split("#")[1].split("<")[0])
+    order = get_order(order_id)
+    assert order is not None
+    assert order.items[0].product_code == "3D-GLASSES"
+    found = client.get("/admin/orders?q=3D-GLASSES")
+    assert "Code Buyer" in found.text
+    detail = client.get(f"/admin/orders/{order_id}")
+    assert "3D-GLASSES" in detail.text
+    slip = client.get(f"/admin/orders/{order_id}/print")
+    assert "3D-GLASSES" in slip.text
 
