@@ -29,6 +29,7 @@
     const isDelivery = selectedMethod() === "delivery";
     if (deliveryFields) {
       deliveryFields.classList.toggle("is-hidden", !isDelivery);
+      deliveryFields.disabled = !isDelivery;
     }
     if (shippingAddress) {
       shippingAddress.required = isDelivery;
