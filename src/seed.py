@@ -193,21 +193,22 @@ def remap_legacy_categories() -> None:
 
 
 def seed_products() -> None:
-    """Insert missing catalog SKUs. Existing rows (including admin edits) are left as-is.
+    """Fill an empty catalog from CATALOG. Never re-inserts listings you removed.
 
-    Stock, names, descriptions, genres, prices, and products added from studio are never
-    overwritten. Empty product codes on known slugs are filled once. Listing photos still
-    pointed at /static/images/products/ are copied into DATA_DIR and rewritten to /media.
+    Existing rows (including admin edits) are left as-is. Empty product codes on
+    known slugs are filled once. Listing photos still pointed at
+    /static/images/products/ are copied into DATA_DIR and rewritten to /media.
     """
     with get_connection() as conn:
-        conn.executemany(
-            """
-            INSERT INTO products (slug, name, description, price_cents, image_url, category, stock, code)
-            VALUES (:slug, :name, :description, :price_cents, :image_url, :category, :stock, :code)
-            ON CONFLICT(slug) DO NOTHING
-            """,
-            CATALOG,
-        )
+        remaining = conn.execute("SELECT COUNT(*) FROM products").fetchone()[0]
+        if remaining == 0:
+            conn.executemany(
+                """
+                INSERT INTO products (slug, name, description, price_cents, image_url, category, stock, code)
+                VALUES (:slug, :name, :description, :price_cents, :image_url, :category, :stock, :code)
+                """,
+                CATALOG,
+            )
         conn.executemany(
             """
             UPDATE products SET code = :code

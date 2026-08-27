@@ -231,7 +231,7 @@ src/                 FastAPI app
   db.py              SQLite helpers and DATA_DIR
   migrate.py         Alembic upgrade entry point
   models.py          Product/Order types, EUR formatting, shipping rules
-  seed.py            Empty-DB catalog bootstrap (does not overwrite live listings)
+  seed.py            Empty-DB catalog bootstrap only (does not re-add removed listings)
   uploads.py         Product photos: studio uploads, thumbs, import seed files into DATA_DIR
   pdf.py             Packing-slip PDF via WeasyPrint
   payments.py        Stripe Checkout, webhooks, refunds
@@ -360,7 +360,7 @@ Two dashboards that are easy to mix up:
 
 ## Shop behaviour
 
-**Catalog.** Live listing names, descriptions, genres, prices, stock, and photos live in SQLite (`DATA_DIR/eshop.db`) and `DATA_DIR/product-images` — not in GitHub. `src/seed.py` only inserts **missing** slugs on an empty database (and fills empty product codes once). Boot never overwrites studio edits. Genres live in the `product_genres` table (studio **Genres** page: add, rename, remove). Renaming a genre updates every product that uses it. Old `3D Prints` / `Laser Engraving` labels are renamed to Household. Listing photos that still point at `/static/images/products/` are copied into `DATA_DIR` and rewritten to `/media/products/...`. The git tree keeps only `placeholder.svg` as UI chrome. Each product can have **several photos**; `image_url` is the cover (first gallery image) used on cards and in the cart. Codes (`3D-GLASSES`, `LC-BOARD`, or a prefix from the genre such as `HP-001` / `SW-012`) show on Stock, packing slips, and studio order emails, and are snapshotted onto each order line.
+**Catalog.** Live listing names, descriptions, genres, prices, stock, and photos live in SQLite (`DATA_DIR/eshop.db`) and `DATA_DIR/product-images` — not in GitHub. `src/seed.py` fills the catalog **only when the products table is empty** (first boot / tests). After that, boot never inserts or overwrites listings — a product you **Remove** in studio stays gone after restart or deploy. Genres live in the `product_genres` table (studio **Genres** page: add, rename, remove). Renaming a genre updates every product that uses it. Old `3D Prints` / `Laser Engraving` labels are renamed to Household. Listing photos that still point at `/static/images/products/` are copied into `DATA_DIR` and rewritten to `/media/products/...`. The git tree keeps only `placeholder.svg` as UI chrome. Each product can have **several photos**; `image_url` is the cover (first gallery image) used on cards and in the cart. Codes (`3D-GLASSES`, `LC-BOARD`, or a prefix from the genre such as `HP-001` / `SW-012`) show on Stock, packing slips, and studio order emails, and are snapshotted onto each order line.
 
 **Cart.** Stored in the signed session cookie (7 days). Add/update quantity is capped at remaining stock. Zero stock hides a product from the shop and the product page shows **Sold out** (no Add to cart). **Hidden** products (studio toggle) are omitted from the shop and product URLs 404. The cart shows the product subtotal only; shipping is not applied until checkout.
 
