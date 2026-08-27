@@ -5,7 +5,7 @@
 {% block content %}
 <p class="breadcrumb"><a href="/admin/orders">Orders</a> / #{{ order.id }}</p>
 <h1 class="page-title">Order #{{ order.id }}</h1>
-<p class="order-meta">Placed {{ order.created_at }} · <span class="status-pill status-{{ order.status }}">{{ order.status_label }}</span> · <span class="status-pill status-{{ order.payment_status }}">{% if order.paid %}Paid{% else %}Unpaid{% endif %}</span></p>
+<p class="order-meta">Placed {{ order.created_at }} · <span class="status-pill status-{{ order.status }}">{{ order.status_label }}</span> · <span class="status-pill status-{{ order.payment_status }}">{{ order.payment_label }}</span></p>
 
 {% if error %}
 <div class="alert alert-error" role="alert">{{ error }}</div>
@@ -35,7 +35,7 @@
         <textarea name="notes" rows="4">{{ order.notes }}</textarea>
       </label>
       <button type="submit" class="btn btn-primary">Save order</button>
-      <p class="checkout-note">Cancelled orders put items back in stock. Reopening an order deducts stock again.</p>
+      <p class="checkout-note">Cancelling a paid order refunds the card through Stripe and emails the customer. Items go back in stock. Reopening deducts stock again; it does not charge the card again.</p>
     </form>
   </section>
 

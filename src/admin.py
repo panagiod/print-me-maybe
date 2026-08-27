@@ -22,10 +22,12 @@ from src.notify import (
     mail_configured,
     mail_domain_unverified_message,
     mail_not_configured_message,
+    notify_order_cancelled,
     record_failed_login,
     resend_from_needs_domain,
     send_test_email,
 )
+from src.payments import refund_order_if_paid
 from src.ratelimit import client_ip
 from src.store import (
     CATEGORIES,
@@ -38,7 +40,9 @@ from src.store import (
     list_all_products,
     list_orders,
     order_status_counts,
+    set_payment_status,
     set_product_stock,
+    stripe_session_id_for_order,
     unique_slug,
     update_order_notes,
     update_order_status,
@@ -207,25 +211,47 @@ def order_update(
     order_id: int,
     status: str = Form(...),
     notes: str = Form(""),
-) -> RedirectResponse:
+) -> Any:
     gate = require_admin(request)
     if gate:
         return gate
     if status not in ORDER_STATUSES:
         raise HTTPException(status_code=400, detail="Invalid status")
-    if not get_order(order_id):
+    order = get_order(order_id)
+    if not order:
         raise HTTPException(status_code=404, detail="Order not found")
-    try:
-        update_order_status(order_id, status)
-    except ValueError as exc:
-        order = get_order(order_id)
+
+    def error_page(message: str, status_code: int = 400):
+        current = get_order(order_id) or order
         return templates.TemplateResponse(
             request,
             "admin_order.html",
-            _ctx(request, {"order": order, "error": str(exc)}),
-            status_code=400,
+            _ctx(request, {"order": current, "error": message}),
+            status_code=status_code,
         )
+
+    cancelling = status == "cancelled" and order.status != "cancelled"
+    refunded = order.payment_status == "refunded"
+    if cancelling:
+        try:
+            did_refund = refund_order_if_paid(
+                payment_status=order.payment_status,
+                session_id=stripe_session_id_for_order(order_id),
+            )
+        except RuntimeError as exc:
+            return error_page(str(exc))
+        if did_refund:
+            set_payment_status(order_id, "refunded")
+            refunded = True
+    try:
+        update_order_status(order_id, status)
+    except ValueError as exc:
+        return error_page(str(exc))
     update_order_notes(order_id, notes.strip())
+    if cancelling:
+        updated = get_order(order_id)
+        if updated:
+            notify_order_cancelled(updated, refunded=refunded)
     return RedirectResponse(url=f"/admin/orders/{order_id}", status_code=303)
 
 

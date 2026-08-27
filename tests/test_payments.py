@@ -332,3 +332,172 @@ def test_paid_session_refunds_when_stock_is_gone(tmp_path, monkeypatch) -> None:
     assert any("pi_test_refund" in body for body in refunds)
     assert any("paid checkout failed" in (m.get("subject") or "").lower() for m in mail)
 
+
+def _place_paid_order(product_id: int, session_id: str = "cs_test_cancel") -> int:
+    from src.models import CartLine
+    from src.store import get_product, place_order
+
+    product = get_product(product_id)
+    assert product
+    return place_order(
+        customer_name="Paid Buyer",
+        customer_email="paid@example.com",
+        shipping_address="Pick up at studio",
+        lines=[CartLine(product=product, quantity=1)],
+        shipping_cents=0,
+        shipping_method="pickup",
+        delivery_country="",
+        paid=True,
+        stripe_session_id=session_id,
+    )
+
+
+def test_admin_cancel_refunds_paid_order_and_emails_customer(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_dummy")
+    monkeypatch.setenv("RESEND_API_KEY", "re_test_key")
+    monkeypatch.setenv("NOTIFY_EMAIL", "studio@example.com")
+    client = _client(monkeypatch, tmp_path)
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_dummy")
+    monkeypatch.setenv("RESEND_API_KEY", "re_test_key")
+    monkeypatch.setenv("NOTIFY_EMAIL", "studio@example.com")
+    products = client.get("/api/products").json()
+    glasses = next(p for p in products if p["slug"] == "glasses-case")
+    from src.store import get_order, get_product
+
+    before = get_product(glasses["id"]).stock
+    order_id = _place_paid_order(glasses["id"])
+    assert get_product(glasses["id"]).stock == before - 1
+
+    refunds: list[str] = []
+    mail: list[dict] = []
+
+    def fake_urlopen(req, timeout=20):
+        url = req.full_url
+        method = req.get_method()
+        if method == "GET" and "checkout/sessions" in url:
+
+            class SessionResp:
+                def read(self):
+                    return json.dumps(
+                        {
+                            "id": "cs_test_cancel",
+                            "payment_status": "paid",
+                            "payment_intent": "pi_cancel_me",
+                        }
+                    ).encode()
+
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, *args):
+                    return False
+
+            return SessionResp()
+        if url.endswith("/refunds"):
+            refunds.append(req.data.decode() if req.data else "")
+
+            class RefundResp:
+                def read(self):
+                    return b'{"id":"re_cancel"}'
+
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, *args):
+                    return False
+
+            return RefundResp()
+        mail.append(json.loads(req.data.decode()))
+
+        class MailResp:
+            status = 200
+
+            def read(self):
+                return b'{"id":"email_1"}'
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+        return MailResp()
+
+    monkeypatch.setattr("src.payments.urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr("src.notify.urllib.request.urlopen", fake_urlopen)
+
+    login = client.post("/admin/login", data={"password": "printmemaybe"}, follow_redirects=False)
+    assert login.status_code == 303
+    result = client.post(
+        f"/admin/orders/{order_id}",
+        data={"status": "cancelled", "notes": ""},
+        follow_redirects=False,
+    )
+    assert result.status_code == 303
+    assert any("pi_cancel_me" in body for body in refunds)
+    order = get_order(order_id)
+    assert order is not None
+    assert order.status == "cancelled"
+    assert order.payment_status == "refunded"
+    assert get_product(glasses["id"]).stock == before
+    assert any(m.get("to") == ["paid@example.com"] for m in mail)
+    assert any("has been refunded" in (m.get("text") or "") for m in mail)
+
+    page = client.get(f"/admin/orders/{order_id}")
+    assert "Refunded" in page.text
+    assert "Cancelled" in page.text
+
+
+def test_admin_cancel_keeps_paid_order_if_refund_fails(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_dummy")
+    client = _client(monkeypatch, tmp_path)
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_dummy")
+    products = client.get("/api/products").json()
+    glasses = next(p for p in products if p["slug"] == "glasses-case")
+    from src.store import get_order, get_product
+
+    before = get_product(glasses["id"]).stock
+    order_id = _place_paid_order(glasses["id"], session_id="cs_test_fail")
+
+    def fake_urlopen(req, timeout=20):
+        if req.get_method() == "GET":
+
+            class SessionResp:
+                def read(self):
+                    return json.dumps(
+                        {
+                            "id": "cs_test_fail",
+                            "payment_status": "paid",
+                            "payment_intent": "pi_fail",
+                        }
+                    ).encode()
+
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, *args):
+                    return False
+
+            return SessionResp()
+        raise urllib.error.HTTPError(
+            url="https://api.stripe.com/v1/refunds",
+            code=400,
+            msg="Bad Request",
+            hdrs=None,
+            fp=BytesIO(b'{"error":{"message":"Refund failed"}}'),
+        )
+
+    monkeypatch.setattr("src.payments.urllib.request.urlopen", fake_urlopen)
+    client.post("/admin/login", data={"password": "printmemaybe"})
+    result = client.post(
+        f"/admin/orders/{order_id}",
+        data={"status": "cancelled", "notes": ""},
+    )
+    assert result.status_code == 400
+    assert "Stripe error" in result.text or "Refund failed" in result.text
+    order = get_order(order_id)
+    assert order is not None
+    assert order.status == "new"
+    assert order.payment_status == "paid"
+    assert get_product(glasses["id"]).stock == before - 1
+

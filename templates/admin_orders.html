@@ -47,7 +47,7 @@
       <td data-label="When">{{ order.created_at }}</td>
       <td data-label="Customer">{{ order.customer_name }}<br><span class="muted">{{ order.customer_email }}</span></td>
       <td data-label="Total">{{ order.total_display }}</td>
-      <td data-label="Pay"><span class="status-pill status-{{ order.payment_status }}">{% if order.paid %}Paid{% else %}Unpaid{% endif %}</span></td>
+      <td data-label="Pay"><span class="status-pill status-{{ order.payment_status }}">{{ order.payment_label }}</span></td>
       <td data-label="Status"><span class="status-pill status-{{ order.status }}">{{ order.status_label }}</span></td>
     </tr>
     {% endfor %}

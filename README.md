@@ -197,7 +197,7 @@ Resend TXT/MX records for email ([#2](https://github.com/panagiod/print-me-maybe
 - Shipping chosen at checkout (see [Shipping](#shipping)): pick up free, Cyprus delivery €3.50, outside Cyprus €10
 - Checkout: name, email, pick-up or delivery, then **Stripe Checkout** when `STRIPE_SECRET_KEY` is set
 - Customer order page at `/order/{unguessable-token}`
-- Studio at `/admin` (not linked in public nav): orders, notes, cancel/restock, add/remove product + photo
+- Studio at `/admin` (not linked in public nav): orders, notes, cancel (refund + restock + customer email), add/remove product + photo
 - Background order email via [Resend](https://resend.com) (needs a domain you own — see [Order emails](#order-emails))
 - JSON catalog at `GET /api/products`
 - Liveness at `GET /health` (`mail`, `payments`, `persistent`)
@@ -381,19 +381,21 @@ Public nav does not advertise `/admin`. Login: `/admin/login` on your domain.
 
 | Page | What it does |
 |------|----------------|
-| `/admin/orders` | Filter by status; Paid/Unpaid; **Send test email** |
-| `/admin/orders/{id}` | Status, notes, cancel (restock) / reopen (deduct again) |
+| `/admin/orders` | Filter by status; Paid / Unpaid / Refunded; **Send test email** |
+| `/admin/orders/{id}` | Status, notes, cancel (Stripe refund if paid, restock, email customer) / reopen (deduct stock; does not charge again) |
 | `/admin/stock` | Add product; **Edit** name/price/description/category/photo/qty; set stock; **Remove** unused products |
 
 **Remove a product.** Each row on `/admin/stock` has a **Remove** button (`POST /admin/products/{id}/delete`). Deletion is a hard delete from the `products` table. It is **blocked** if that product appears on any past order (foreign key on `order_items`). In that case the studio sees: *This product has been ordered before. Set stock to 0 to hide it from the shop.* Setting stock to 0 still hides the item from the public catalog without deleting history.
 
 Order statuses: New → In progress → Ready to ship → Shipped, plus Cancelled.
 
+**Cancel a paid order** from that order page. The shop refunds the Stripe Checkout payment first; if Stripe rejects the refund, the order stays open and stock is not put back. After a successful refund the payment pill shows **Refunded**, items return to stock, and the customer (and studio inbox) get a cancellation email. Unpaid demo orders skip Stripe and still email the customer. Reopening a cancelled order deducts stock again and does **not** charge the card.
+
 Uploaded photos are served from `/media/products/...` and stored under `DATA_DIR/product-images`.
 
 ## Order emails
 
-New checkouts and blocked login/checkout floods email **dimitrioupanagiotis@outlook.com**. Checkout still succeeds if mail fails.
+New checkouts and blocked login/checkout floods email **dimitrioupanagiotis@outlook.com**. Checkout still succeeds if mail fails. Cancelling an order from studio admin also emails the customer (refund notice when a card payment was returned).
 
 ### What you cannot add in Resend → Domains
 

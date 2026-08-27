@@ -245,6 +245,8 @@ def test_admin_orders_and_stock() -> None:
     assert detail.status_code == 200
     assert "In progress" in detail.text
     assert "DM received for custom name" in detail.text
+    assert "refunds the card through Stripe" in detail.text
+    assert "emails the customer" in detail.text
 
     stock_page = client.get("/admin/stock")
     assert stock_page.status_code == 200
@@ -286,6 +288,10 @@ def test_cancel_restocks_and_reopen_deducts() -> None:
     )
     after_cancel = next(p for p in list_all_products() if p.slug == "glasses-case").stock
     assert after_cancel == before
+    cancelled = client.get(f"/admin/orders/{order_id}")
+    assert "Cancelled" in cancelled.text
+    assert "Unpaid" in cancelled.text
+    assert "Refunded" not in cancelled.text
 
     client.post(
         f"/admin/orders/{order_id}",
