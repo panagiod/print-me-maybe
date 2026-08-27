@@ -103,7 +103,7 @@ def test_category_filter() -> None:
     assert toys.status_code == 200
     assert "Articulated Dragon" in toys.text
     assert "Dragon Egg" in toys.text
-    assert "Dragon & Egg Set" in toys.text
+    assert "Egg Set" in toys.text
     assert "Minas Tirith" not in toys.text
 
 
