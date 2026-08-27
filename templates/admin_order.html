@@ -5,7 +5,7 @@
 {% block content %}
 <p class="breadcrumb"><a href="/admin/orders">Orders</a> / #{{ order.id }}</p>
 <h1 class="page-title">Order #{{ order.id }}</h1>
-<p class="order-meta">Placed {{ order.created_at_display }} · <span class="status-pill status-{{ order.status }}">{{ order.status_label }}</span> · <span class="status-pill status-{{ order.payment_status }}">{{ order.payment_label }}{% if order.payment_method == "cash" %} (cash/bank){% endif %}</span></p>
+<p class="order-meta">Placed {{ order.created_at_display }} · <span class="status-pill status-{{ order.status }}">{{ order.status_label }}</span> · <span class="status-pill status-{{ order.payment_status }}">{{ order.payment_label }}{% if order.pay_at_pickup %} · cash at pick up{% elif order.payment_method == "cash" %} (cash/bank){% endif %}</span></p>
 
 {% if error %}
 <div class="alert alert-error" role="alert">{{ error }}</div>
@@ -45,6 +45,9 @@
     {% endif %}
     {% if order.shipping_label %}
     <p class="order-shipping-method">{{ order.shipping_label }}</p>
+    {% endif %}
+    {% if order.pay_at_pickup %}
+    <p class="order-payment-note">Pay {{ order.total_display }} in cash when you collect.</p>
     {% endif %}
     <p class="order-shipping-address">{{ order.shipping_address }}</p>
     {% if customer_order_url %}

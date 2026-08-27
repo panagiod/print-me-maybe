@@ -89,6 +89,69 @@ def test_checkout_with_stripe_redirects(tmp_path, monkeypatch) -> None:
     assert "checkout.stripe.com" in result.headers["location"]
 
 
+def test_pickup_cash_skips_stripe(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_dummy")
+
+    def boom(*args, **kwargs):
+        raise AssertionError("Stripe must not be called for cash at pick up")
+
+    monkeypatch.setattr("src.payments.urllib.request.urlopen", boom)
+    client = _client(monkeypatch, tmp_path)
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_dummy")
+    products = client.get("/api/products").json()
+    glasses = next(p for p in products if p["slug"] == "glasses-case")
+    client.post("/cart/add", data={"product_id": glasses["id"], "quantity": 1})
+    page = client.get("/checkout")
+    assert "Pay with cash at pick up" in page.text
+    result = client.post(
+        "/checkout",
+        data={
+            "customer_name": "Cash Pat",
+            "customer_email": "cashpat@example.com",
+            "shipping_method": "pickup",
+            "payment_method": "cash",
+        },
+        follow_redirects=False,
+    )
+    assert result.status_code == 200
+    assert "Thank you" in result.text
+    assert "Pay in cash when you collect" in result.text
+    from src.store import get_order, list_orders
+
+    order = list_orders()[0]
+    assert order.payment_status == "unpaid"
+    assert order.payment_method == "cash"
+    assert order.shipping_method == "pickup"
+    assert order.pay_at_pickup
+    detail = client.get(order.customer_order_path)
+    assert "pay cash at pick up" in detail.text
+    assert "Pay €4.00 in cash when you collect" in detail.text
+
+
+def test_delivery_rejects_cash(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_dummy")
+    client = _client(monkeypatch, tmp_path)
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_dummy")
+    products = client.get("/api/products").json()
+    glasses = next(p for p in products if p["slug"] == "glasses-case")
+    client.post("/cart/add", data={"product_id": glasses["id"], "quantity": 1})
+    result = client.post(
+        "/checkout",
+        data={
+            "customer_name": "No Cash Delivery",
+            "customer_email": "nocash@example.com",
+            "shipping_method": "delivery",
+            "delivery_country": "cyprus",
+            "shipping_address": "12 Engine St",
+            "customer_phone": "+357 99 123456",
+            "payment_method": "cash",
+        },
+    )
+    assert result.status_code == 400
+    assert "Cash is only available" in result.text
+    assert "Thank you" not in result.text
+
+
 def test_pay_success_rejects_unpaid_session(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_dummy")
 

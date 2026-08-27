@@ -13,7 +13,7 @@
   <p class="order-meta">Packing slip · Order #{{ order.id }} · {{ order.created_at_display }}</p>
   <p>
     <span class="status-pill status-{{ order.status }}">{{ order.status_label }}</span>
-    <span class="status-pill status-{{ order.payment_status }}">{{ order.payment_label }}{% if order.payment_method == "cash" %} (cash/bank){% endif %}</span>
+    <span class="status-pill status-{{ order.payment_status }}">{{ order.payment_label }}{% if order.pay_at_pickup %} · cash at pick up{% elif order.payment_method == "cash" %} (cash/bank){% endif %}</span>
   </p>
 
   <section class="order-details">

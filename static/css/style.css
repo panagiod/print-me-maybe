@@ -593,6 +593,10 @@ img {
   display: none;
 }
 
+.checkout-form:not(:has(input[name="shipping_method"][value="pickup"]:checked)) .cash-pickup-option {
+  display: none;
+}
+
 .shipping-options {
   display: flex;
   flex-direction: column;

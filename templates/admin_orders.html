@@ -71,7 +71,7 @@
       <td data-label="Ship">{{ order.shipping_label or "—" }}</td>
       <td data-label="Tracking">{{ order.tracking_number or "—" }}</td>
       <td data-label="Total">{{ order.total_display }}</td>
-      <td data-label="Pay"><span class="status-pill status-{{ order.payment_status }}">{{ order.payment_label }}{% if order.payment_method == "cash" %} (cash){% endif %}</span></td>
+      <td data-label="Pay"><span class="status-pill status-{{ order.payment_status }}">{{ order.payment_label }}{% if order.pay_at_pickup %} · cash{% elif order.payment_method == "cash" %} (cash){% endif %}</span></td>
       <td data-label="Status"><span class="status-pill status-{{ order.status }}">{{ order.status_label }}</span></td>
     </tr>
     {% endfor %}

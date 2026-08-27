@@ -31,7 +31,20 @@ CYPRUS_SHIPPING_CENTS = 350
 INTERNATIONAL_SHIPPING_CENTS = 1000
 SHIPPING_METHODS = ("pickup", "delivery")
 DELIVERY_COUNTRIES = ("cyprus", "other")
+PAYMENT_METHODS = ("card", "cash")
 PICKUP_ADDRESS_LABEL = "Pick up at studio"
+
+
+def normalize_payment_method(raw: str, shipping_method: str) -> str:
+    """Card is the default. Cash is only valid with pick up at the studio."""
+    method = (raw or "card").strip().lower()
+    if method in ("", "card"):
+        return "card"
+    if method == "cash":
+        if shipping_method != "pickup":
+            raise ValueError("Cash is only available when you pick up at the studio")
+        return "cash"
+    raise ValueError("Choose card or cash at pick up")
 
 
 def shipping_method_label(shipping_method: str, delivery_country: str | None = None) -> str:
@@ -222,6 +235,11 @@ class Order:
     @property
     def card_paid(self) -> bool:
         return self.paid and self.payment_method != "cash"
+
+    @property
+    def pay_at_pickup(self) -> bool:
+        """Unpaid order the customer chose to settle in cash at the studio."""
+        return self.payment_method == "cash" and not self.paid
 
     @property
     def created_at_display(self) -> str:

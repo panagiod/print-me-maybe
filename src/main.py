@@ -23,6 +23,7 @@ from src.models import (
     Order,
     clean_phone,
     format_money,
+    normalize_payment_method,
     phone_has_enough_digits,
     shipping_cents,
 )
@@ -294,6 +295,7 @@ def checkout_submit(
     shipping_address: str = Form(""),
     customer_notes: str = Form(""),
     customer_phone: str = Form(""),
+    payment_method: str = Form("card"),
 ) -> Any:
     cart = get_cart(request)
     lines = build_cart_lines(cart)
@@ -317,6 +319,7 @@ def checkout_submit(
         "form_shipping_address": address,
         "form_customer_notes": notes,
         "form_customer_phone": phone,
+        "form_payment_method": payment_method,
     }
 
     try:
@@ -328,6 +331,7 @@ def checkout_submit(
             raise ValueError("Enter a phone number for delivery")
         if method == "pickup":
             address = PICKUP_ADDRESS_LABEL
+        pay = normalize_payment_method(payment_method, method)
         totals = checkout_totals(lines, shipping_method=method, delivery_country=country)
     except ValueError as exc:
         totals = checkout_totals(lines)
@@ -344,7 +348,8 @@ def checkout_submit(
             status_code=400,
         )
 
-    if payments_configured():
+    skip_card = pay == "cash" or not payments_configured()
+    if not skip_card:
         try:
             pay_url, session_id = create_checkout_session(
                 lines=lines,
@@ -398,6 +403,7 @@ def checkout_submit(
             delivery_country=country or "",
             customer_notes=notes,
             customer_phone=phone,
+            payment_method="cash" if pay == "cash" else "",
         )
     except ValueError as exc:
         return templates.TemplateResponse(
@@ -405,7 +411,6 @@ def checkout_submit(
             "checkout.html",
             {
                 **checkout_ctx,
-                "payments_on": False,
                 "error": str(exc),
                 "form_shipping_method": method,
                 "form_delivery_country": country or delivery_country,
@@ -427,6 +432,7 @@ def checkout_submit(
             "cart_count": 0,
             "shop_name": shop_name(),
             "paid": False,
+            "pay_at_pickup": pay == "cash",
             **totals,
         },
     )
