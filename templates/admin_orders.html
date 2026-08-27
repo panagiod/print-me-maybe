@@ -57,12 +57,14 @@
   <a href="{{ oldest_href }}" class="category-chip {% if sort == 'oldest' %}active{% endif %}">Oldest first</a>
 </nav>
 
+{% if not show_archived %}
 <nav class="category-bar" aria-label="Order status">
   <a href="{{ all_href }}" class="category-chip {% if not active_status %}active{% endif %}">All ({{ counts.get('all', 0) }})</a>
   {% for key in statuses %}
   <a href="{{ status_hrefs[key] }}" class="category-chip {% if active_status == key %}active{% endif %}">{{ status_labels[key] }} ({{ counts.get(key, 0) }})</a>
   {% endfor %}
 </nav>
+{% endif %}
 
 <nav class="category-bar" aria-label="Shipping method">
   <a href="{{ shipping_all_href }}" class="category-chip {% if not active_shipping %}active{% endif %}">All methods ({{ shipping_counts.get('all', 0) }})</a>

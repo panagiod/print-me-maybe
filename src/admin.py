@@ -298,6 +298,8 @@ def _orders_list_extra(
         status = None
     if shipping and shipping not in SHIPPING_FILTERS:
         shipping = None
+    if archived:
+        status = None
     needle = (q or "").strip()
     day_from = parse_studio_day(date_from)
     day_to = parse_studio_day(date_to)
@@ -338,7 +340,6 @@ def _orders_list_extra(
             q=needle,
             date_from=day_from,
             date_to=day_to,
-            status=status,
             shipping=shipping,
         ),
         "shipping_labels": SHIPPING_FILTER_LABELS,
@@ -360,8 +361,8 @@ def _orders_list_extra(
             key: _orders_href(status=status, **{**href_kw, "shipping": key})
             for key in SHIPPING_FILTERS
         },
-        "inbox_href": _orders_href(status=status, **{**href_kw, "archived": False}),
-        "archived_href": _orders_href(status=status, **{**href_kw, "archived": True}),
+        "inbox_href": _orders_href(status=None, **{**href_kw, "archived": False}),
+        "archived_href": _orders_href(status=None, **{**href_kw, "archived": True}),
         "newest_href": _orders_href(status=status, **{**href_kw, "sort": "newest"}),
         "oldest_href": _orders_href(status=status, **{**href_kw, "sort": "oldest"}),
         "clear_dates_href": _orders_href(
