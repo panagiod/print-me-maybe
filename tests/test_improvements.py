@@ -89,7 +89,8 @@ def test_alembic_upgrades_legacy_sqlite(tmp_path, monkeypatch) -> None:
     assert "product_images" in tables
     assert "alembic_version" in tables
     version = conn.execute("SELECT version_num FROM alembic_version").fetchone()[0]
-    assert version == "003_catalog"
+    assert version == "004_order_archive"
+    assert "archived" in order_cols
     gallery = conn.execute("SELECT url FROM product_images WHERE product_id = 1").fetchone()
     assert gallery is not None
     conn.close()

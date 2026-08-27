@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
@@ -18,6 +18,7 @@ from src.models import (
     ORDER_STATUS_LABELS,
     ORDER_STATUSES,
     format_money,
+    parse_studio_day,
 )
 from src.notify import (
     mail_configured,
@@ -39,6 +40,7 @@ from src.store import (
     CATEGORIES,
     PLACEHOLDER_IMAGE,
     add_product_photos,
+    archive_done_orders,
     catalog_counts,
     create_product,
     delete_product,
@@ -49,8 +51,10 @@ from src.store import (
     list_all_products,
     list_orders,
     mark_order_paid_cash,
+    order_archive_counts,
     order_shipping_counts,
     order_status_counts,
+    set_order_archived,
     set_payment_status,
     set_product_cover,
     set_product_hidden,
@@ -217,6 +221,10 @@ def _orders_href(
     status: str | None = None,
     shipping: str | None = None,
     q: str | None = None,
+    archived: bool = False,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    sort: str | None = None,
 ) -> str:
     params: dict[str, str] = {}
     if status:
@@ -226,6 +234,16 @@ def _orders_href(
     needle = (q or "").strip()
     if needle:
         params["q"] = needle
+    if archived:
+        params["archived"] = "1"
+    day_from = parse_studio_day(date_from)
+    day_to = parse_studio_day(date_to)
+    if day_from:
+        params["from"] = day_from
+    if day_to:
+        params["to"] = day_to
+    if sort == "oldest":
+        params["sort"] = "oldest"
     qs = urlencode(params)
     return "/admin/orders?" + qs if qs else "/admin/orders"
 
@@ -269,6 +287,10 @@ def _orders_list_extra(
     status: str | None,
     shipping: str | None,
     q: str | None,
+    archived: bool = False,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    sort: str | None = None,
     extra: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if status and status not in ORDER_STATUSES:
@@ -276,30 +298,85 @@ def _orders_list_extra(
     if shipping and shipping not in SHIPPING_FILTERS:
         shipping = None
     needle = (q or "").strip()
+    day_from = parse_studio_day(date_from)
+    day_to = parse_studio_day(date_to)
+    sort_key = "oldest" if sort == "oldest" else "newest"
+    href_kw = dict(
+        shipping=shipping,
+        q=needle,
+        archived=archived,
+        date_from=day_from,
+        date_to=day_to,
+        sort=sort_key,
+    )
     data: dict[str, Any] = {
-        "orders": list_orders(status, shipping=shipping, q=needle),
-        "counts": order_status_counts(),
-        "shipping_counts": order_shipping_counts(),
+        "orders": list_orders(
+            status,
+            shipping=shipping,
+            q=needle,
+            archived=archived,
+            date_from=day_from,
+            date_to=day_to,
+            sort=sort_key,
+        ),
+        "counts": order_status_counts(
+            archived=archived,
+            q=needle,
+            date_from=day_from,
+            date_to=day_to,
+            shipping=shipping,
+        ),
+        "shipping_counts": order_shipping_counts(
+            archived=archived,
+            q=needle,
+            date_from=day_from,
+            date_to=day_to,
+            status=status,
+        ),
+        "archive_counts": order_archive_counts(
+            q=needle,
+            date_from=day_from,
+            date_to=day_to,
+            status=status,
+            shipping=shipping,
+        ),
         "shipping_labels": SHIPPING_FILTER_LABELS,
         "shipping_filters": SHIPPING_FILTERS,
         "active_status": status,
         "active_shipping": shipping,
         "search_q": needle,
-        "clear_search_href": _orders_href(status=status, shipping=shipping, q=None),
-        "all_href": _orders_href(status=None, shipping=shipping, q=needle),
+        "show_archived": archived,
+        "date_from": day_from or "",
+        "date_to": day_to or "",
+        "sort": sort_key,
+        "clear_search_href": _orders_href(status=status, **{**href_kw, "q": None}),
+        "all_href": _orders_href(status=None, **href_kw),
         "status_hrefs": {
-            key: _orders_href(status=key, shipping=shipping, q=needle) for key in ORDER_STATUSES
+            key: _orders_href(status=key, **href_kw) for key in ORDER_STATUSES
         },
-        "shipping_all_href": _orders_href(status=status, shipping=None, q=needle),
+        "shipping_all_href": _orders_href(status=status, **{**href_kw, "shipping": None}),
         "shipping_hrefs": {
-            key: _orders_href(status=status, shipping=key, q=needle) for key in SHIPPING_FILTERS
+            key: _orders_href(status=status, **{**href_kw, "shipping": key})
+            for key in SHIPPING_FILTERS
         },
+        "inbox_href": _orders_href(status=status, **{**href_kw, "archived": False}),
+        "archived_href": _orders_href(status=status, **{**href_kw, "archived": True}),
+        "newest_href": _orders_href(status=status, **{**href_kw, "sort": "newest"}),
+        "oldest_href": _orders_href(status=status, **{**href_kw, "sort": "oldest"}),
+        "clear_dates_href": _orders_href(
+            status=status, **{**href_kw, "date_from": None, "date_to": None}
+        ),
         "notify_email": os.environ.get("NOTIFY_EMAIL", "dimitrioupanagiotis@outlook.com"),
         "mail_ready": mail_configured(),
         "mail_needs_domain": resend_from_needs_domain(),
         "mail_setup_hint": mail_not_configured_message(),
         "mail_domain_hint": mail_domain_unverified_message(),
+        "archivable_in_view": 0,
     }
+    if not archived:
+        data["archivable_in_view"] = sum(
+            1 for order in data["orders"] if order.can_archive
+        )
     if extra:
         data.update(extra)
     return data
@@ -353,12 +430,44 @@ def admin_home(request: Request) -> RedirectResponse:
     return RedirectResponse(url="/admin/orders", status_code=303)
 
 
+def _want_archived(raw: str | None) -> bool:
+    return (raw or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _orders_list_redirect(
+    *,
+    status: str | None = None,
+    shipping: str | None = None,
+    q: str | None = None,
+    archived: bool = False,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    sort: str | None = None,
+) -> RedirectResponse:
+    return RedirectResponse(
+        url=_orders_href(
+            status=status,
+            shipping=shipping,
+            q=q,
+            archived=archived,
+            date_from=date_from,
+            date_to=date_to,
+            sort=sort,
+        ),
+        status_code=303,
+    )
+
+
 @router.get("/orders")
 def orders_page(
     request: Request,
     status: str | None = None,
     shipping: str | None = None,
     q: str | None = None,
+    archived: str | None = None,
+    sort: str | None = None,
+    date_from: str | None = Query(None, alias="from"),
+    date_to: str | None = Query(None, alias="to"),
 ) -> Any:
     gate = require_admin(request)
     if gate:
@@ -366,7 +475,51 @@ def orders_page(
     return templates.TemplateResponse(
         request,
         "admin_orders.html",
-        _ctx(request, _orders_list_extra(request, status=status, shipping=shipping, q=q)),
+        _ctx(
+            request,
+            _orders_list_extra(
+                request,
+                status=status,
+                shipping=shipping,
+                q=q,
+                archived=_want_archived(archived),
+                date_from=date_from,
+                date_to=date_to,
+                sort=sort,
+            ),
+        ),
+    )
+
+
+@router.post("/orders/archive-done")
+def archive_done_page(
+    request: Request,
+    status: str | None = Form(None),
+    shipping: str | None = Form(None),
+    q: str | None = Form(None),
+    sort: str | None = Form(None),
+    date_from: str | None = Form(None),
+    date_to: str | None = Form(None),
+) -> Any:
+    gate = require_admin(request)
+    if gate:
+        return gate
+    if status and status not in ORDER_STATUSES:
+        status = None
+    archive_done_orders(
+        status=status,
+        shipping=shipping,
+        q=q,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    return _orders_list_redirect(
+        status=status,
+        shipping=shipping,
+        q=q,
+        date_from=date_from,
+        date_to=date_to,
+        sort=sort,
     )
 
 
@@ -514,6 +667,38 @@ def order_update(
             else:
                 mail = "need_tracking"
     return _order_redirect(order_id, mail)
+
+
+@router.post("/orders/{order_id}/archive")
+def order_archive(request: Request, order_id: int) -> Any:
+    gate = require_admin(request)
+    if gate:
+        return gate
+    order = get_order(order_id)
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    try:
+        set_order_archived(order_id, True)
+    except ValueError as exc:
+        return templates.TemplateResponse(
+            request,
+            "admin_order.html",
+            _ctx(request, _order_view_extra(request, order, {"error": str(exc)})),
+            status_code=400,
+        )
+    return _order_redirect(order_id)
+
+
+@router.post("/orders/{order_id}/unarchive")
+def order_unarchive(request: Request, order_id: int) -> Any:
+    gate = require_admin(request)
+    if gate:
+        return gate
+    order = get_order(order_id)
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    set_order_archived(order_id, False)
+    return _order_redirect(order_id)
 
 
 @router.post("/orders/{order_id}/mark-paid")

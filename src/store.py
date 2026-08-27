@@ -11,7 +11,16 @@ from decimal import Decimal, InvalidOperation
 from typing import Any, Iterable
 
 from src.db import get_connection
-from src.models import CartLine, Order, OrderItem, Product, ProductImage
+from src.models import (
+    ARCHIVABLE_STATUSES,
+    CartLine,
+    Order,
+    OrderItem,
+    Product,
+    ProductImage,
+    parse_studio_day,
+    studio_day_utc_bounds,
+)
 
 CATEGORIES = ("3D Prints", "Laser Engraving")
 PLACEHOLDER_IMAGE = "/static/images/products/placeholder.svg"
@@ -458,11 +467,44 @@ def list_orders(
     *,
     shipping: str | None = None,
     q: str | None = None,
+    archived: bool = False,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    sort: str = "newest",
 ) -> list[Order]:
-    """Newest-first order list for the studio admin."""
-    query = "SELECT * FROM orders"
+    """Studio order list. Inbox (default) hides archived shipped/cancelled orders."""
+    where, params = _order_filter_sql(
+        status=status,
+        shipping=shipping,
+        q=q,
+        archived=archived,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    order_by = "ORDER BY created_at ASC, id ASC" if sort == "oldest" else "ORDER BY created_at DESC, id DESC"
+    query = f"SELECT * FROM orders{where} {order_by}"
+    with get_connection() as conn:
+        rows = conn.execute(query, tuple(params)).fetchall()
+        return [_order_from_row(conn, row) for row in rows]
+
+
+def _order_filter_sql(
+    *,
+    status: str | None = None,
+    shipping: str | None = None,
+    q: str | None = None,
+    archived: bool = False,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    include_archive_clause: bool = True,
+) -> tuple[str, list[object]]:
     clauses: list[str] = []
     params: list[object] = []
+    if include_archive_clause:
+        if archived:
+            clauses.append("COALESCE(archived, 0) = 1")
+        else:
+            clauses.append("COALESCE(archived, 0) = 0")
     if status:
         clauses.append("status = ?")
         params.append(status)
@@ -486,41 +528,163 @@ def list_orders(
             )
             like = f"%{needle}%"
             params.extend([like, like, like])
-    if clauses:
-        query += " WHERE " + " AND ".join(clauses)
-    query += " ORDER BY id DESC"
+    start_day = parse_studio_day(date_from)
+    end_day = parse_studio_day(date_to)
+    if start_day:
+        bounds = studio_day_utc_bounds(start_day)
+        if bounds:
+            clauses.append("created_at >= ?")
+            params.append(bounds[0])
+    if end_day:
+        bounds = studio_day_utc_bounds(end_day)
+        if bounds:
+            clauses.append("created_at < ?")
+            params.append(bounds[1])
+    if not clauses:
+        return "", []
+    return " WHERE " + " AND ".join(clauses), params
 
-    with get_connection() as conn:
-        rows = conn.execute(query, tuple(params)).fetchall()
-        return [_order_from_row(conn, row) for row in rows]
 
-
-def order_shipping_counts() -> dict[str, int]:
+def order_shipping_counts(
+    *,
+    archived: bool = False,
+    q: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    status: str | None = None,
+) -> dict[str, int]:
     """Counts for pickup vs Cyprus vs international filter chips."""
+    base, params = _order_filter_sql(
+        status=status,
+        q=q,
+        archived=archived,
+        date_from=date_from,
+        date_to=date_to,
+    )
     with get_connection() as conn:
+        total = conn.execute(f"SELECT COUNT(*) FROM orders{base}", tuple(params)).fetchone()[0]
         pickup = conn.execute(
-            "SELECT COUNT(*) FROM orders WHERE shipping_method = 'pickup'"
+            f"SELECT COUNT(*) FROM orders{base} {'AND' if base else 'WHERE'} shipping_method = 'pickup'",
+            tuple(params),
         ).fetchone()[0]
         cyprus = conn.execute(
-            "SELECT COUNT(*) FROM orders WHERE shipping_method = 'delivery' AND delivery_country = 'cyprus'"
+            f"SELECT COUNT(*) FROM orders{base} {'AND' if base else 'WHERE'} "
+            "shipping_method = 'delivery' AND delivery_country = 'cyprus'",
+            tuple(params),
         ).fetchone()[0]
         other = conn.execute(
-            "SELECT COUNT(*) FROM orders WHERE shipping_method = 'delivery' AND delivery_country = 'other'"
+            f"SELECT COUNT(*) FROM orders{base} {'AND' if base else 'WHERE'} "
+            "shipping_method = 'delivery' AND delivery_country = 'other'",
+            tuple(params),
         ).fetchone()[0]
-        total = conn.execute("SELECT COUNT(*) FROM orders").fetchone()[0]
     return {"all": int(total), "pickup": int(pickup), "cyprus": int(cyprus), "other": int(other)}
 
 
-def order_status_counts() -> dict[str, int]:
+def order_status_counts(
+    *,
+    archived: bool = False,
+    q: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    shipping: str | None = None,
+) -> dict[str, int]:
     """Counts for the admin status filter chips."""
+    base, params = _order_filter_sql(
+        shipping=shipping,
+        q=q,
+        archived=archived,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    group = f"SELECT status, COUNT(*) AS n FROM orders{base} GROUP BY status"
+    total_sql = f"SELECT COUNT(*) FROM orders{base}"
     with get_connection() as conn:
-        rows = conn.execute(
-            "SELECT status, COUNT(*) AS n FROM orders GROUP BY status"
-        ).fetchall()
-        total = conn.execute("SELECT COUNT(*) FROM orders").fetchone()[0]
+        rows = conn.execute(group, tuple(params)).fetchall()
+        total = conn.execute(total_sql, tuple(params)).fetchone()[0]
     counts = {row["status"]: int(row["n"]) for row in rows}
     counts["all"] = int(total)
     return counts
+
+
+def order_archive_counts(
+    *,
+    q: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    status: str | None = None,
+    shipping: str | None = None,
+) -> dict[str, int]:
+    """Inbox vs archived counts for the same search/date/status/shipping filters."""
+    inbox_where, inbox_params = _order_filter_sql(
+        status=status,
+        shipping=shipping,
+        q=q,
+        archived=False,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    archived_where, archived_params = _order_filter_sql(
+        status=status,
+        shipping=shipping,
+        q=q,
+        archived=True,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    with get_connection() as conn:
+        inbox = conn.execute(
+            f"SELECT COUNT(*) FROM orders{inbox_where}", tuple(inbox_params)
+        ).fetchone()[0]
+        archived = conn.execute(
+            f"SELECT COUNT(*) FROM orders{archived_where}", tuple(archived_params)
+        ).fetchone()[0]
+    return {"inbox": int(inbox), "archived": int(archived)}
+
+
+def set_order_archived(order_id: int, archived: bool) -> None:
+    """Hide a shipped or cancelled order from the inbox (or restore it)."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT status FROM orders WHERE id = ?",
+            (order_id,),
+        ).fetchone()
+        if not row:
+            raise ValueError("Order not found")
+        if archived and row["status"] not in ARCHIVABLE_STATUSES:
+            raise ValueError("Only shipped or cancelled orders can be archived")
+        conn.execute(
+            "UPDATE orders SET archived = ? WHERE id = ?",
+            (1 if archived else 0, order_id),
+        )
+
+
+def archive_done_orders(
+    *,
+    status: str | None = None,
+    shipping: str | None = None,
+    q: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> int:
+    """Archive every shipped or cancelled order currently in the inbox for these filters."""
+    where, params = _order_filter_sql(
+        status=status,
+        shipping=shipping,
+        q=q,
+        archived=False,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    placeholders = ", ".join("?" for _ in ARCHIVABLE_STATUSES)
+    extra = f"status IN ({placeholders})"
+    params.extend(ARCHIVABLE_STATUSES)
+    clause = f"{where} AND {extra}" if where else f" WHERE {extra}"
+    with get_connection() as conn:
+        cursor = conn.execute(
+            f"UPDATE orders SET archived = 1{clause}",
+            tuple(params),
+        )
+        return int(cursor.rowcount or 0)
 
 
 def update_order_status(order_id: int, status: str) -> None:
@@ -570,6 +734,8 @@ def update_order_status(order_id: int, status: str) -> None:
                 )
 
         conn.execute("UPDATE orders SET status = ? WHERE id = ?", (status, order_id))
+        if status not in ARCHIVABLE_STATUSES:
+            conn.execute("UPDATE orders SET archived = 0 WHERE id = ?", (order_id,))
 
 
 def update_order_notes(order_id: int, notes: str) -> None:
@@ -659,6 +825,7 @@ def _order_from_row(conn, row) -> Order:
         customer_notes=row["customer_notes"] if "customer_notes" in keys and row["customer_notes"] else "",
         customer_phone=row["customer_phone"] if "customer_phone" in keys and row["customer_phone"] else "",
         payment_method=row["payment_method"] if "payment_method" in keys and row["payment_method"] else "",
+        archived=bool(row["archived"]) if "archived" in keys and row["archived"] else False,
     )
 
 

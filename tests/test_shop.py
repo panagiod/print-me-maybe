@@ -637,6 +637,138 @@ def test_order_list_search_and_shipping_filter() -> None:
     assert "Eleni Search" not in cyprus.text
 
 
+def test_order_list_date_filter_and_sort() -> None:
+    from src.db import get_connection
+    from src.models import studio_day_utc_bounds
+    from src.store import list_orders
+
+    assert studio_day_utc_bounds("2026-08-20") == ("2026-08-19 21:00:00", "2026-08-20 21:00:00")
+    assert studio_day_utc_bounds("2026-01-15") == ("2026-01-14 22:00:00", "2026-01-15 22:00:00")
+    assert studio_day_utc_bounds("not-a-day") is None
+
+    init_schema()
+    seed_products()
+    client = TestClient(app)
+    products = client.get("/api/products").json()
+    glasses = next(p for p in products if p["slug"] == "glasses-case")
+    client.post("/cart/add", data={"product_id": glasses["id"], "quantity": 1})
+    client.post(
+        "/checkout",
+        data={
+            "customer_name": "Aug Twenty",
+            "customer_email": "twenty@example.com",
+            "shipping_method": "pickup",
+        },
+    )
+    client.post("/cart/add", data={"product_id": glasses["id"], "quantity": 1})
+    client.post(
+        "/checkout",
+        data={
+            "customer_name": "Aug TwentyOne",
+            "customer_email": "twentyone@example.com",
+            "shipping_method": "pickup",
+        },
+    )
+    orders = list_orders()
+    older_id, newer_id = orders[1].id, orders[0].id
+    with get_connection() as conn:
+        conn.execute("UPDATE orders SET created_at = ? WHERE id = ?", ("2026-08-20 20:00:00", older_id))
+        conn.execute("UPDATE orders SET created_at = ? WHERE id = ?", ("2026-08-20 22:00:00", newer_id))
+
+    same_day = list_orders(date_from="2026-08-20", date_to="2026-08-20")
+    assert [order.customer_name for order in same_day] == ["Aug Twenty"]
+    next_day = list_orders(date_from="2026-08-21", date_to="2026-08-21")
+    assert [order.customer_name for order in next_day] == ["Aug TwentyOne"]
+    oldest = list_orders(sort="oldest")
+    assert [order.customer_name for order in oldest] == ["Aug Twenty", "Aug TwentyOne"]
+    newest = list_orders(sort="newest")
+    assert [order.customer_name for order in newest] == ["Aug TwentyOne", "Aug Twenty"]
+
+    client.post("/admin/login", data={"password": "printmemaybe"})
+    filtered = client.get("/admin/orders?from=2026-08-20&to=2026-08-20")
+    assert "Aug Twenty" in filtered.text
+    assert "Aug TwentyOne" not in filtered.text
+    assert "2026-08-20" in filtered.text
+    oldest_page = client.get("/admin/orders?sort=oldest")
+    assert oldest_page.text.find("Aug Twenty") < oldest_page.text.find("Aug TwentyOne")
+    newest_page = client.get("/admin/orders")
+    assert newest_page.text.find("Aug TwentyOne") < newest_page.text.find("Aug Twenty")
+
+
+def test_archive_completed_and_cancelled_orders() -> None:
+    from src.store import get_order, set_order_archived
+
+    init_schema()
+    seed_products()
+    client = TestClient(app)
+    products = client.get("/api/products").json()
+    glasses = next(p for p in products if p["slug"] == "glasses-case")
+
+    def place(name: str) -> int:
+        client.post("/cart/add", data={"product_id": glasses["id"], "quantity": 1})
+        checkout = client.post(
+            "/checkout",
+            data={
+                "customer_name": name,
+                "customer_email": f"{name.lower().replace(' ', '')}@example.com",
+                "shipping_method": "pickup",
+            },
+        )
+        return int(checkout.text.split("#")[1].split("<")[0])
+
+    open_id = place("Still Open")
+    shipped_id = place("Ship Done")
+    cancelled_id = place("Cancel Done")
+    client.post("/admin/login", data={"password": "printmemaybe"})
+    client.post(f"/admin/orders/{shipped_id}", data={"status": "shipped", "notes": ""})
+    client.post(f"/admin/orders/{cancelled_id}", data={"status": "cancelled", "notes": ""})
+
+    blocked = client.post(f"/admin/orders/{open_id}/archive")
+    assert blocked.status_code == 400
+    assert "shipped or cancelled" in blocked.text.lower()
+    with pytest.raises(ValueError, match="shipped or cancelled"):
+        set_order_archived(open_id, True)
+
+    archived = client.post(f"/admin/orders/{shipped_id}/archive", follow_redirects=False)
+    assert archived.status_code == 303
+    inbox = client.get("/admin/orders")
+    assert "Ship Done" not in inbox.text
+    assert "Still Open" in inbox.text
+    assert "Cancel Done" in inbox.text
+    assert "Archive shipped and cancelled in this view (1)" in inbox.text
+    stored = get_order(shipped_id)
+    assert stored is not None and stored.archived is True
+    archive_list = client.get("/admin/orders?archived=1")
+    assert "Ship Done" in archive_list.text
+    assert "Still Open" not in archive_list.text
+    detail = client.get(f"/admin/orders/{shipped_id}")
+    assert "Archived" in detail.text
+    assert "Restore to inbox" in detail.text
+
+    bulk = client.post("/admin/orders/archive-done", follow_redirects=False)
+    assert bulk.status_code == 303
+    inbox = client.get("/admin/orders")
+    assert "Cancel Done" not in inbox.text
+    assert "Still Open" in inbox.text
+    assert "No orders" not in inbox.text
+    archive_list = client.get("/admin/orders?archived=1")
+    assert "Cancel Done" in archive_list.text
+
+    restored = client.post(f"/admin/orders/{shipped_id}/unarchive", follow_redirects=False)
+    assert restored.status_code == 303
+    inbox = client.get("/admin/orders")
+    assert "Ship Done" in inbox.text
+
+    client.post(f"/admin/orders/{shipped_id}/archive")
+    client.post(f"/admin/orders/{shipped_id}", data={"status": "in_progress", "notes": ""})
+    reopened = get_order(shipped_id)
+    assert reopened is not None
+    assert reopened.status == "in_progress"
+    assert reopened.archived is False
+    inbox = client.get("/admin/orders")
+    assert "Ship Done" in inbox.text
+
+
 def test_cannot_reopen_refunded_order() -> None:
     init_schema()
     seed_products()

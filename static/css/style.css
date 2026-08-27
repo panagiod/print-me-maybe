@@ -838,11 +838,20 @@ img {
   font-size: 0.85rem;
 }
 
-.orders-search input[type="search"] {
+.orders-search input[type="search"],
+.orders-search input[type="date"] {
   font: inherit;
   padding: 0.55rem 0.75rem;
   border: 1px solid var(--border);
   border-radius: 8px;
+}
+
+.admin-table tr.date-group td {
+  background: #f4f1ea;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
 }
 
 .admin-order-actions {
@@ -1033,6 +1042,7 @@ img {
 .status-paid { background: #e6f6ed; color: #0d6b32; }
 .status-unpaid { background: #f4f1ea; color: #6b5e4e; }
 .status-refunded { background: #ece8f6; color: #4a3d8f; }
+.status-archived { background: #eeeae4; color: #5c5348; }
 
 .empty-state {
   color: var(--muted);
@@ -1123,6 +1133,18 @@ img {
     display: block;
     padding: 1rem 1.1rem;
     border-bottom: 1px solid var(--border);
+  }
+
+  .cart-table tr.date-group {
+    padding: 0.55rem 1.1rem;
+    background: #f4f1ea;
+  }
+
+  .cart-table tr.date-group td {
+    display: block;
+    padding: 0;
+    text-align: left;
+    justify-content: flex-start;
   }
 
   .cart-table td {

@@ -401,7 +401,7 @@ Rates are decided at checkout, not from cart size. There is no free-shipping thr
 - Home hero: “Free pick up; €3.50 delivery in Cyprus; €10 shipping outside Cyprus.”
 - Checkout totals update in the browser when the customer switches pick-up / delivery or Cyprus / outside Cyprus. The server recomputes the same numbers on POST (and again from Stripe metadata after payment).
 - **Pay with cash at pick up** is offered on checkout when pick up is selected. That places an **Unpaid** order with `payment_method=cash` and does **not** open Stripe. Delivery is card only. Studio **Mark as paid (cash/bank)** when they collect.
-- The `orders` table stores `shipping_method`, `delivery_country`, `shipping_address`, `tracking_number`, `customer_notes`, `customer_phone`, `payment_method`, and a combined `total_cents` (subtotal + shipping). Shipping itself is also derived as `total_cents − item subtotal`.
+- The `orders` table stores `shipping_method`, `delivery_country`, `shipping_address`, `tracking_number`, `customer_notes`, `customer_phone`, `payment_method`, `archived` (shipped/cancelled orders can leave the inbox), and a combined `total_cents` (subtotal + shipping). Shipping itself is also derived as `total_cents − item subtotal`.
 
 ## Studio admin
 
@@ -409,8 +409,8 @@ Public nav does not advertise `/admin`. Login: `/admin/login` on your domain (pr
 
 | Page | What it does |
 |------|----------------|
-| `/admin/orders` | Filter by status and shipping (pickup / Cyprus / outside Cyprus); search by number, name, email, or tracking; Paid / Unpaid / Refunded; **Send test email** |
-| `/admin/orders/{id}` | Status, **tracking number**, customer notes vs studio notes, phone (`tel:`), copy customer link, resend confirmation (and shipped email), **Mark as paid (cash/bank)**, print packing slip, **download PDF**, Stripe session id, cancel (Stripe refund if card-paid, restock, email customer) / reopen (blocked if refunded) |
+| `/admin/orders` | Filter by status, shipping (pickup / Cyprus / outside Cyprus), and **date range (Cyprus time)**; **newest / oldest**; search by number, name, email, or tracking; **Inbox vs Archived**; bulk-archive shipped/cancelled in the current view; Paid / Unpaid / Refunded; **Send test email** |
+| `/admin/orders/{id}` | Status, **tracking number**, customer notes vs studio notes, phone (`tel:`), copy customer link, resend confirmation (and shipped email), **Mark as paid (cash/bank)**, **Archive** shipped/cancelled (or **Restore to inbox**), print packing slip, **download PDF**, Stripe session id, cancel (Stripe refund if card-paid, restock, email customer) / reopen (blocked if refunded) |
 | `/admin/orders/{id}/print` | Packing slip (print hides the admin chrome) |
 | `/admin/orders/{id}/print.pdf` | Same slip as a downloadable PDF |
 | `/admin/stock` | Catalog with **photos**, search, category and listed/hidden chips; qty / hide / show save in place; **Add product**; **Remove** (confirm) |
@@ -419,11 +419,12 @@ Public nav does not advertise `/admin`. Login: `/admin/login` on your domain (pr
 
 ### Daily order flow
 
-1. Open **Orders**. New **card** checkouts show **Paid**. Cash-at-pick-up orders show **Unpaid · cash**. Use search or Pickup / Cyprus / Outside Cyprus chips on packing day.
+1. Open **Orders**. The default **Inbox** hides archived shipped and cancelled orders. New **card** checkouts show **Paid**. Cash-at-pick-up orders show **Unpaid · cash**. Use search, date From/To (Cyprus time), Newest/Oldest, or Pickup / Cyprus / Outside Cyprus chips on packing day.
 2. Open the order. Set status **In progress** then **Ready to ship** as you work. Ready emails the customer once (pickup: collect at studio; delivery: packed for courier). Studio notes are yours; customer notes came from checkout.
 3. When it leaves: set status **Shipped**. For **delivery**, paste the courier number in **Tracking number** and Save — the customer is emailed only when a tracking number exists. Pickup customers get a collect-at-studio email (no tracking nag).
 4. You can add the tracking number later; saving a new number on an already-shipped delivery emails the customer again.
-5. If they lost the confirmation mail: **Copy customer link** or **Resend confirmation**.
+5. When an order is **Shipped** or **Cancelled**, **Archive** it (or **Archive shipped and cancelled in this view** on the list) so it leaves the inbox. Open **Archived** to find it later; **Restore to inbox** brings it back. Reopening a shipped/cancelled order also returns it to the inbox.
+6. If they lost the confirmation mail: **Copy customer link** or **Resend confirmation**.
 
 After Save, the order page shows whether the customer email was sent, skipped (no Resend key), failed, or still needs a tracking number.
 

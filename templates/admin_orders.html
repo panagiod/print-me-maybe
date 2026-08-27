@@ -23,15 +23,39 @@
 <form action="/admin/orders" method="get" class="orders-search">
   {% if active_status %}<input type="hidden" name="status" value="{{ active_status }}">{% endif %}
   {% if active_shipping %}<input type="hidden" name="shipping" value="{{ active_shipping }}">{% endif %}
+  {% if show_archived %}<input type="hidden" name="archived" value="1">{% endif %}
+  {% if sort == "oldest" %}<input type="hidden" name="sort" value="oldest">{% endif %}
   <label>
     Search orders
     <input type="search" name="q" value="{{ search_q }}" placeholder="Number, name, email, or tracking">
   </label>
-  <button type="submit" class="btn btn-ghost">Search</button>
+  <label>
+    From
+    <input type="date" name="from" value="{{ date_from }}">
+  </label>
+  <label>
+    To
+    <input type="date" name="to" value="{{ date_to }}">
+  </label>
+  <button type="submit" class="btn btn-ghost">Apply</button>
   {% if search_q %}
-  <a href="{{ clear_search_href }}" class="btn btn-ghost">Clear</a>
+  <a href="{{ clear_search_href }}" class="btn btn-ghost">Clear search</a>
+  {% endif %}
+  {% if date_from or date_to %}
+  <a href="{{ clear_dates_href }}" class="btn btn-ghost">Clear dates</a>
   {% endif %}
 </form>
+<p class="checkout-note">Dates use Cyprus time (Europe/Nicosia).</p>
+
+<nav class="category-bar" aria-label="Inbox or archive">
+  <a href="{{ inbox_href }}" class="category-chip {% if not show_archived %}active{% endif %}">Inbox ({{ archive_counts.get('inbox', 0) }})</a>
+  <a href="{{ archived_href }}" class="category-chip {% if show_archived %}active{% endif %}">Archived ({{ archive_counts.get('archived', 0) }})</a>
+</nav>
+
+<nav class="category-bar" aria-label="Sort orders">
+  <a href="{{ newest_href }}" class="category-chip {% if sort != 'oldest' %}active{% endif %}">Newest first</a>
+  <a href="{{ oldest_href }}" class="category-chip {% if sort == 'oldest' %}active{% endif %}">Oldest first</a>
+</nav>
 
 <nav class="category-bar" aria-label="Order status">
   <a href="{{ all_href }}" class="category-chip {% if not active_status %}active{% endif %}">All ({{ counts.get('all', 0) }})</a>
@@ -46,6 +70,23 @@
   <a href="{{ shipping_hrefs[key] }}" class="category-chip {% if active_shipping == key %}active{% endif %}">{{ shipping_labels[key] }} ({{ shipping_counts.get(key, 0) }})</a>
   {% endfor %}
 </nav>
+
+{% if archivable_in_view and not show_archived %}
+<form
+  action="/admin/orders/archive-done"
+  method="post"
+  class="orders-search"
+  data-confirm="Archive {{ archivable_in_view }} shipped or cancelled order{{ 's' if archivable_in_view != 1 else '' }} in this view?"
+>
+  {% if active_status %}<input type="hidden" name="status" value="{{ active_status }}">{% endif %}
+  {% if active_shipping %}<input type="hidden" name="shipping" value="{{ active_shipping }}">{% endif %}
+  {% if search_q %}<input type="hidden" name="q" value="{{ search_q }}">{% endif %}
+  {% if date_from %}<input type="hidden" name="date_from" value="{{ date_from }}">{% endif %}
+  {% if date_to %}<input type="hidden" name="date_to" value="{{ date_to }}">{% endif %}
+  {% if sort == "oldest" %}<input type="hidden" name="sort" value="oldest">{% endif %}
+  <button type="submit" class="btn btn-ghost">Archive shipped and cancelled in this view ({{ archivable_in_view }})</button>
+</form>
+{% endif %}
 
 {% if orders %}
 <div class="table-wrap">
@@ -63,7 +104,14 @@
     </tr>
   </thead>
   <tbody>
+    {% set ns = namespace(day='') %}
     {% for order in orders %}
+    {% if order.created_at_day != ns.day %}
+    {% set ns.day = order.created_at_day %}
+    <tr class="date-group">
+      <td colspan="8" data-label="">{{ order.created_at_day }}</td>
+    </tr>
+    {% endif %}
     <tr>
       <td data-label="#"><a href="/admin/orders/{{ order.id }}">{{ order.id }}</a></td>
       <td data-label="When">{{ order.created_at_display }}</td>
@@ -78,6 +126,8 @@
   </tbody>
 </table>
 </div>
+{% elif show_archived %}
+<p class="empty-state">No archived orders in this view.</p>
 {% else %}
 <p class="empty-state">No orders in this view yet.</p>
 {% endif %}

@@ -5,7 +5,7 @@
 {% block content %}
 <p class="breadcrumb"><a href="/admin/orders">Orders</a> / #{{ order.id }}</p>
 <h1 class="page-title">Order #{{ order.id }}</h1>
-<p class="order-meta">Placed {{ order.created_at_display }} · <span class="status-pill status-{{ order.status }}">{{ order.status_label }}</span> · <span class="status-pill status-{{ order.payment_status }}">{{ order.payment_label }}{% if order.pay_at_pickup %} · cash at pick up{% elif order.payment_method == "cash" %} (cash/bank){% endif %}</span></p>
+<p class="order-meta">Placed {{ order.created_at_display }} · <span class="status-pill status-{{ order.status }}">{{ order.status_label }}</span> · <span class="status-pill status-{{ order.payment_status }}">{{ order.payment_label }}{% if order.pay_at_pickup %} · cash at pick up{% elif order.payment_method == "cash" %} (cash/bank){% endif %}</span>{% if order.archived %} · <span class="status-pill status-archived">Archived</span>{% endif %}</p>
 
 {% if error %}
 <div class="alert alert-error" role="alert">{{ error }}</div>
@@ -31,6 +31,15 @@
   {% if order.payment_status == "unpaid" %}
   <form action="/admin/orders/{{ order.id }}/mark-paid" method="post">
     <button type="submit" class="btn btn-ghost">Mark as paid (cash/bank)</button>
+  </form>
+  {% endif %}
+  {% if order.archived %}
+  <form action="/admin/orders/{{ order.id }}/unarchive" method="post">
+    <button type="submit" class="btn btn-ghost">Restore to inbox</button>
+  </form>
+  {% elif order.can_archive %}
+  <form action="/admin/orders/{{ order.id }}/archive" method="post">
+    <button type="submit" class="btn btn-ghost">Archive</button>
   </form>
   {% endif %}
 </div>
