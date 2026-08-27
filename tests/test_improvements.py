@@ -89,7 +89,7 @@ def test_alembic_upgrades_legacy_sqlite(tmp_path, monkeypatch) -> None:
     assert "product_images" in tables
     assert "alembic_version" in tables
     version = conn.execute("SELECT version_num FROM alembic_version").fetchone()[0]
-    assert version == "006_product_genres"
+    assert version == "007_dragon_toys"
     leftover = conn.execute("SELECT category FROM products WHERE slug = 'legacy-mug'").fetchone()
     assert leftover[0] == "Household"
     assert "archived" in order_cols

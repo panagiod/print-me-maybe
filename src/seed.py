@@ -81,7 +81,7 @@ CATALOG = [
         "description": "Poseable 3D-printed dragon for play, décor, or gifting. Colours can be customised — add your preference in the order notes.",
         "price_cents": 1300,
         "image_url": "/static/images/products/dragon.jpg",
-        "category": "Lord of the Rings",
+        "category": "Toys",
         "stock": 20,
     },
     {
@@ -90,7 +90,7 @@ CATALOG = [
         "description": "Matching 3D-printed dragon egg. Pair it with the articulated dragon, or order the set below and save.",
         "price_cents": 1200,
         "image_url": "/static/images/products/dragon-egg.jpg",
-        "category": "Lord of the Rings",
+        "category": "Toys",
         "stock": 20,
     },
     {
@@ -99,7 +99,7 @@ CATALOG = [
         "description": "Articulated dragon plus matching egg as a set. Colours customisable. A gift for fantasy fans of any age.",
         "price_cents": 2000,
         "image_url": "/static/images/products/dragon-egg.jpg",
-        "category": "Lord of the Rings",
+        "category": "Toys",
         "stock": 14,
     },
     {
