@@ -39,33 +39,51 @@
 
     <fieldset>
       <legend>Delivery</legend>
-      <div class="shipping-options">
-        <label class="shipping-option">
+      <div class="choice-grid" role="radiogroup" aria-label="Delivery method">
+        <label class="choice-card">
           <input type="radio" name="shipping_method" value="pickup" required
             {% if form_shipping_method|default('pickup') == 'pickup' %}checked{% endif %}>
-          Pick up at studio <span class="free-badge">Free</span>
+          <span class="choice-copy">
+            <span class="choice-title">Pick up at studio</span>
+            <span class="choice-detail">Collect your order in Cyprus</span>
+          </span>
+          <span class="choice-price free-badge">Free</span>
         </label>
-        <label class="shipping-option">
+        <label class="choice-card">
           <input type="radio" name="shipping_method" value="delivery" required
             {% if form_shipping_method == 'delivery' %}checked{% endif %}>
-          Delivery
+          <span class="choice-copy">
+            <span class="choice-title">Delivery</span>
+            <span class="choice-detail">Cyprus or international</span>
+          </span>
+          <span class="choice-price">From {{ cyprus_shipping_display }}</span>
         </label>
       </div>
     </fieldset>
 
     <fieldset id="delivery-fields" class="delivery-fields">
       <legend>Delivery address</legend>
-      <label>
-        Destination
-        <select name="delivery_country" id="delivery-country">
-          <option value="cyprus" {% if form_delivery_country|default('cyprus') == 'cyprus' %}selected{% endif %}>
-            Cyprus ({{ cyprus_shipping_display }})
-          </option>
-          <option value="other" {% if form_delivery_country == 'other' %}selected{% endif %}>
-            International ({{ international_shipping_display }})
-          </option>
-        </select>
-      </label>
+      <p class="field-hint">Where should we send it?</p>
+      <div class="choice-grid" role="radiogroup" aria-label="Destination">
+        <label class="choice-card">
+          <input type="radio" name="delivery_country" value="cyprus"
+            {% if form_delivery_country|default('cyprus') == 'cyprus' %}checked{% endif %}>
+          <span class="choice-copy">
+            <span class="choice-title">Cyprus</span>
+            <span class="choice-detail">Courier within Cyprus</span>
+          </span>
+          <span class="choice-price">{{ cyprus_shipping_display }}</span>
+        </label>
+        <label class="choice-card">
+          <input type="radio" name="delivery_country" value="other"
+            {% if form_delivery_country == 'other' %}checked{% endif %}>
+          <span class="choice-copy">
+            <span class="choice-title">International</span>
+            <span class="choice-detail">Everywhere else</span>
+          </span>
+          <span class="choice-price">{{ international_shipping_display }}</span>
+        </label>
+      </div>
       <label>
         Address
         <textarea name="shipping_address" rows="3" autocomplete="street-address" id="shipping-address">{{ form_shipping_address or '' }}</textarea>
