@@ -361,16 +361,28 @@ def notify_new_order(order: Order) -> bool:
 def _deliver_customer(order: Order) -> None:
     if not order.customer_email:
         return
+    _deliver_customer_message(
+        to=order.customer_email,
+        subject=customer_email_subject(order),
+        body=customer_email_body(order),
+    )
+
+
+def _deliver_customer_message(*, to: str, subject: str, body: str) -> None:
+    cleaned = (to or "").strip()
+    if not cleaned:
+        return
     if smtp_password():
-        _send_via_smtp(build_customer_email(order))
+        msg = EmailMessage()
+        msg["Subject"] = subject
+        msg["From"] = smtp_user() or resend_from()
+        msg["To"] = cleaned
+        msg.set_content(body)
+        _send_via_smtp(msg)
         return
     if not resend_api_key():
         return
-    _send_via_resend(
-        subject=customer_email_subject(order),
-        body=customer_email_body(order),
-        to=order.customer_email,
-    )
+    _send_via_resend(subject=subject, body=body, to=cleaned)
 
 
 def notify_payment_failure(*, session_id: str, customer_email: str, reason: str, refunded: bool) -> None:
@@ -404,6 +416,86 @@ def notify_payment_failure(*, session_id: str, customer_email: str, reason: str,
         )
     except Exception:
         logger.exception("Could not email payment-failure alert for %s", session_id)
+
+
+def cancellation_email_subject(order: Order) -> str:
+    return f"{shop_name()} order #{order.id} cancelled"
+
+
+def cancellation_email_body(order: Order, *, refunded: bool) -> str:
+    link = (
+        f"{shop_url()}/order/{order.lookup_token}"
+        if order.lookup_token
+        else shop_url()
+    )
+    if refunded:
+        money = (
+            f"The card payment of {order.total_display} has been refunded. "
+            "It can take a few business days to appear on your statement."
+        )
+    else:
+        money = "No payment was collected for this order."
+    return "\n".join(
+        [
+            f"Your {shop_name()} order #{order.id} has been cancelled.",
+            "",
+            f"Total: {order.total_display}",
+            "",
+            money,
+            "",
+            "View your order:",
+            link,
+            "",
+            "Questions? Reply to this email.",
+            "",
+        ]
+    )
+
+
+def _studio_cancellation_body(order: Order, *, refunded: bool) -> str:
+    if refunded:
+        money = "The card payment was refunded through Stripe."
+    elif order.paid:
+        money = "Payment still shows as paid — check Stripe Dashboard."
+    else:
+        money = "No payment was collected."
+    return (
+        f"You cancelled order #{order.id} for {order.customer_name} ({order.customer_email}).\n\n"
+        f"Total: {order.total_display}\n"
+        f"{money}\n"
+        "The customer was emailed.\n\n"
+        f"Studio: {shop_url()}/admin/orders/{order.id}\n"
+    )
+
+
+def notify_order_cancelled(order: Order, *, refunded: bool) -> bool:
+    """Email the customer (and studio) after an admin cancel. Never raises."""
+    if not mail_configured():
+        logger.warning(
+            "Order #%s cancelled; email skipped (set RESEND_API_KEY in /etc/eshop.env).",
+            order.id,
+        )
+        return False
+    try:
+        _deliver_studio(
+            subject=cancellation_email_subject(order),
+            body=_studio_cancellation_body(order, refunded=refunded),
+            reply_to=order.customer_email,
+            name=order.customer_name,
+        )
+    except Exception:
+        logger.exception("Could not email studio about cancelled order #%s", order.id)
+    try:
+        _deliver_customer_message(
+            to=order.customer_email,
+            subject=cancellation_email_subject(order),
+            body=cancellation_email_body(order, refunded=refunded),
+        )
+    except Exception:
+        logger.exception("Could not email customer about cancelled order #%s", order.id)
+        return False
+    logger.info("Cancellation for order #%s emailed to %s", order.id, order.customer_email)
+    return True
 
 
 def schedule_order_email(order: Order) -> None:

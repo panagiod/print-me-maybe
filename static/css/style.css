@@ -804,6 +804,7 @@ img {
 .status-cancelled { background: #fdecea; color: #8a1f11; }
 .status-paid { background: #e6f6ed; color: #0d6b32; }
 .status-unpaid { background: #f4f1ea; color: #6b5e4e; }
+.status-refunded { background: #ece8f6; color: #4a3d8f; }
 
 .empty-state {
   color: var(--muted);

@@ -4,7 +4,10 @@
 
 {% block content %}
 <h1 class="page-title">Order #{{ order.id }}</h1>
-<p class="order-meta">Placed {{ order.created_at }} · {{ order.status_label }}</p>
+<p class="order-meta">Placed {{ order.created_at }} · {{ order.status_label }} · {{ order.payment_label }}</p>
+{% if order.status == "cancelled" %}
+<p class="checkout-note">This order was cancelled.{% if order.payment_status == "refunded" %} The card payment was refunded.{% endif %}</p>
+{% endif %}
 
 <div class="checkout-layout">
   <section class="order-details">

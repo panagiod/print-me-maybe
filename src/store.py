@@ -334,6 +334,16 @@ def update_order_notes(order_id: int, notes: str) -> None:
         conn.execute("UPDATE orders SET notes = ? WHERE id = ?", (notes, order_id))
 
 
+def set_payment_status(order_id: int, payment_status: str) -> None:
+    if payment_status not in {"unpaid", "paid", "refunded"}:
+        raise ValueError("Invalid payment status")
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE orders SET payment_status = ? WHERE id = ?",
+            (payment_status, order_id),
+        )
+
+
 def _order_from_row(conn, row) -> Order:
     item_rows = conn.execute(
         """
@@ -596,3 +606,13 @@ def remember_stripe_session(session_id: str, order_id: int) -> None:
             "INSERT OR IGNORE INTO stripe_sessions (session_id, order_id) VALUES (?, ?)",
             (session_id, order_id),
         )
+
+
+def stripe_session_id_for_order(order_id: int) -> str | None:
+    """Newest Checkout session mapped to this order, if any."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT session_id FROM stripe_sessions WHERE order_id = ? ORDER BY rowid DESC LIMIT 1",
+            (order_id,),
+        ).fetchone()
+    return str(row["session_id"]) if row else None

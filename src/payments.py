@@ -121,12 +121,20 @@ def create_checkout_session(
     return str(url), session_id
 
 
+def retrieve_checkout_session(session_id: str) -> dict:
+    """GET a Checkout session. Raises RuntimeError if Stripe rejects the id."""
+    cleaned = (session_id or "").strip()
+    if not cleaned.startswith("cs_"):
+        raise RuntimeError("Invalid Stripe session id")
+    return _stripe_request("GET", f"/checkout/sessions/{urllib.parse.quote(cleaned)}")
+
+
 def paid_session(session_id: str) -> dict | None:
     """Return the Stripe session if it is paid; otherwise None."""
     cleaned = (session_id or "").strip()
     if not cleaned.startswith("cs_"):
         return None
-    session = _stripe_request("GET", f"/checkout/sessions/{urllib.parse.quote(cleaned)}")
+    session = retrieve_checkout_session(cleaned)
     if session.get("payment_status") != "paid":
         return None
     return session
@@ -168,18 +176,55 @@ def parse_webhook_event(payload: bytes, header: str) -> dict:
     return event
 
 
+def _is_already_refunded_error(exc: BaseException) -> bool:
+    text = str(exc).lower()
+    return (
+        "already been refunded" in text
+        or "charge_already_refunded" in text
+        or "already_refunded" in text
+    )
+
+
 def refund_payment(session: dict) -> None:
-    """Refund a paid Checkout session. Best-effort; logs and continues on failure."""
+    """Refund a paid Checkout session. Raises if Stripe cannot refund."""
     intent = session.get("payment_intent")
     if isinstance(intent, dict):
         intent = intent.get("id")
     intent_id = str(intent or "").strip()
     if not intent_id.startswith("pi_"):
-        logger.warning("Cannot refund session %s: no payment_intent", session.get("id"))
-        return
+        raise RuntimeError(f"Cannot refund session {session.get('id')}: no payment_intent")
     try:
         _stripe_request("POST", "/refunds", {"payment_intent": intent_id})
         logger.warning("Refunded Stripe payment %s for session %s", intent_id, session.get("id"))
-    except Exception:
+    except Exception as exc:
+        if _is_already_refunded_error(exc):
+            logger.info("Stripe payment %s was already refunded", intent_id)
+            return
         logger.exception("Stripe refund failed for %s", intent_id)
         raise
+
+
+def refund_order_if_paid(*, payment_status: str, session_id: str | None) -> bool:
+    """Refund a paid order through Stripe.
+
+    Returns True if money was refunded (or already had been).
+    Returns False if there was nothing to refund.
+    Raises RuntimeError if a refund is required but cannot be completed.
+    """
+    if payment_status == "refunded":
+        return True
+    if payment_status != "paid":
+        return False
+    sid = (session_id or "").strip()
+    if not sid:
+        raise RuntimeError(
+            "This paid order has no Stripe checkout on file, so the shop cannot "
+            "refund the card automatically. Refund it in the Stripe Dashboard, then try again."
+        )
+    if not payments_configured():
+        raise RuntimeError(
+            "Card refunds need STRIPE_SECRET_KEY. Set it in /etc/eshop.env, then try cancelling again."
+        )
+    session = retrieve_checkout_session(sid)
+    refund_payment(session)
+    return True

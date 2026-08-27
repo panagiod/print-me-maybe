@@ -13,7 +13,13 @@ from fastapi.testclient import TestClient
 from src.db import init_schema
 from src.main import app
 from src.models import Order, OrderItem, format_money
-from src.notify import build_order_email, mail_configured, notify_new_order
+from src.notify import (
+    build_order_email,
+    cancellation_email_body,
+    mail_configured,
+    notify_new_order,
+    notify_order_cancelled,
+)
 from src.seed import seed_products
 
 
@@ -98,6 +104,50 @@ def test_build_order_email_includes_customer_and_totals() -> None:
     assert "€7.50" in body
     assert "/admin/orders/12" in body
     assert "No payment was collected" in body
+
+
+def test_cancellation_email_mentions_refund() -> None:
+    order = _sample_order()
+    refunded = cancellation_email_body(order, refunded=True)
+    unpaid = cancellation_email_body(order, refunded=False)
+    assert "has been cancelled" in refunded
+    assert "€7.50 has been refunded" in refunded
+    assert "customer-order-token-12" in refunded
+    assert "No payment was collected" in unpaid
+    assert "has been refunded" not in unpaid
+
+
+def test_notify_order_cancelled_emails_studio_and_customer(monkeypatch) -> None:
+    monkeypatch.delenv("SMTP_PASSWORD", raising=False)
+    monkeypatch.setenv("NOTIFY_EMAIL", "dimitrioupanagiotis@outlook.com")
+    monkeypatch.setenv("RESEND_API_KEY", "re_test_key")
+    captured: list[dict] = []
+
+    class FakeResp:
+        status = 200
+
+        def read(self) -> bytes:
+            return b'{"id":"email_1"}'
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    def fake_urlopen(req, timeout=None):
+        captured.append(json.loads(req.data.decode()))
+        return FakeResp()
+
+    monkeypatch.setattr("src.notify.urllib.request.urlopen", fake_urlopen)
+    assert notify_order_cancelled(_sample_order(), refunded=True) is True
+    assert len(captured) == 2
+    studio, customer = captured
+    assert studio["to"] == ["dimitrioupanagiotis@outlook.com"]
+    assert "cancelled" in studio["subject"].lower()
+    assert "refunded through Stripe" in studio["text"]
+    assert customer["to"] == ["ada@example.com"]
+    assert "€7.50 has been refunded" in customer["text"]
 
 
 def test_notify_sends_via_smtp(monkeypatch) -> None:

@@ -14,6 +14,11 @@ ORDER_STATUS_LABELS = {
     "shipped": "Shipped",
     "cancelled": "Cancelled",
 }
+PAYMENT_STATUS_LABELS = {
+    "unpaid": "Unpaid",
+    "paid": "Paid",
+    "refunded": "Refunded",
+}
 
 CYPRUS_SHIPPING_CENTS = 350
 INTERNATIONAL_SHIPPING_CENTS = 1000
@@ -137,6 +142,10 @@ class Order:
     @property
     def paid(self) -> bool:
         return self.payment_status == "paid"
+
+    @property
+    def payment_label(self) -> str:
+        return PAYMENT_STATUS_LABELS.get(self.payment_status, self.payment_status)
 
     @property
     def shipping_label(self) -> str:
