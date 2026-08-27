@@ -185,6 +185,7 @@ img {
   font-weight: 400;
   line-height: 1.15;
   margin: 0 0 0.65rem;
+  white-space: pre-line;
 }
 
 .hero-subtitle {
@@ -192,6 +193,7 @@ img {
   font-size: 1rem;
   margin: 0;
   max-width: 40rem;
+  white-space: pre-line;
 }
 
 .category-bar {

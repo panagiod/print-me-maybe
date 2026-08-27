@@ -48,6 +48,7 @@ from src.store import (
     delete_product_photo,
     euros_to_cents,
     get_genre,
+    get_home_copy,
     get_order,
     get_product,
     list_all_products,
@@ -58,6 +59,7 @@ from src.store import (
     order_archive_counts,
     order_shipping_counts,
     order_status_counts,
+    save_home_copy,
     set_order_archived,
     set_payment_status,
     set_product_cover,
@@ -1191,5 +1193,62 @@ def genre_delete(
     except ValueError as exc:
         return _genre_page(request, error=str(exc), status_code=400)
     return RedirectResponse(url="/admin/genres", status_code=303)
+
+
+def _home_copy_page(
+    request: Request,
+    *,
+    error: str | None = None,
+    saved: bool = False,
+    form_title: str | None = None,
+    form_banner: str | None = None,
+    status_code: int = 200,
+) -> Any:
+    title, banner = get_home_copy()
+    return templates.TemplateResponse(
+        request,
+        "admin_home.html",
+        _ctx(
+            request,
+            {
+                "error": error,
+                "saved": saved,
+                "form_title": title if form_title is None else form_title,
+                "form_banner": banner if form_banner is None else form_banner,
+            },
+        ),
+        status_code=status_code,
+    )
+
+
+@router.get("/home")
+def home_copy_page(request: Request, saved: str | None = None) -> Any:
+    gate = require_admin(request)
+    if gate:
+        return gate
+    return _home_copy_page(request, saved=bool(saved))
+
+
+@router.post("/home")
+def home_copy_save(
+    request: Request,
+    title: str = Form(""),
+    banner: str = Form(""),
+) -> Any:
+    gate = require_admin(request)
+    if gate:
+        return gate
+    try:
+        save_home_copy(title=title, banner=banner)
+    except ValueError as exc:
+        return _home_copy_page(
+            request,
+            error=str(exc),
+            form_title=title,
+            form_banner=banner,
+            status_code=400,
+        )
+    return RedirectResponse(url="/admin/home?saved=1", status_code=303)
+
 
 

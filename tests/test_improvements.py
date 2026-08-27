@@ -94,14 +94,18 @@ def test_alembic_upgrades_legacy_sqlite(tmp_path, monkeypatch) -> None:
     assert "product_name" in item_cols
     assert "product_images" in tables
     assert "product_genres" in tables
+    assert "shop_settings" in tables
     assert "alembic_version" in tables
     version = conn.execute("SELECT version_num FROM alembic_version").fetchone()[0]
-    assert version == "007_genre_table"
+    assert version == "008_shop_settings"
     leftover = conn.execute("SELECT category FROM products WHERE slug = 'legacy-mug'").fetchone()
     assert leftover[0] == "Household"
     genres = {row[0] for row in conn.execute("SELECT name FROM product_genres")}
     assert "Household" in genres
     assert "Harry Potter" in genres
+    settings = {row[0] for row in conn.execute("SELECT key FROM shop_settings")}
+    assert "home_title" in settings
+    assert "home_banner" in settings
     assert "archived" in order_cols
     assert "code" in product_cols
     assert "product_code" in item_cols

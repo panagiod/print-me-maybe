@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from src.db import get_connection, sync_product_image_gallery
+from src.store import ensure_shop_settings
 from src.uploads import promote_static_listing_photos
 
 # 3D listings use captions and euro prices from public @print.me.maybe posts
@@ -219,3 +220,4 @@ def seed_products() -> None:
     remap_legacy_categories()
     sync_product_image_gallery()
     promote_static_listing_photos()
+    ensure_shop_settings()
