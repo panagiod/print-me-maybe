@@ -156,6 +156,14 @@ def test_seed_moves_listing_photos_into_data_dir() -> None:
     assert leftover == []
     assert leftover_gallery == []
 
+    client = TestClient(app)
+    photo = client.get(glasses.image_url)
+    assert photo.status_code == 200
+    assert photo.headers["content-type"].startswith("image/jpeg")
+    svg = client.get(coasters.image_url)
+    assert svg.status_code == 200
+    assert svg.headers["content-type"].startswith("image/svg")
+
 
 def test_category_filter() -> None:
     init_schema()

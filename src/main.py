@@ -202,6 +202,7 @@ def _image_media_type(filename: str) -> str:
         ".png": "image/png",
         ".webp": "image/webp",
         ".gif": "image/gif",
+        ".svg": "image/svg+xml",
     }.get(ext, "application/octet-stream")
 
 
