@@ -18,6 +18,7 @@
     data-subtotal-cents="{{ subtotal_cents }}"
     data-cyprus-shipping-cents="{{ cyprus_shipping_cents }}"
     data-international-shipping-cents="{{ international_shipping_cents }}"
+    data-payments-on="{% if payments_on %}1{% else %}0{% endif %}"
   >
     <fieldset>
       <legend>Your details</legend>
@@ -80,14 +81,31 @@
       <p class="field-hint">Optional. The studio sees this with your order. You can still DM @print.me.maybe or @lasercraft.27 for photos or files.</p>
     </fieldset>
 
-    <p class="checkout-note">
+    <fieldset>
+      <legend>Payment</legend>
+      <div class="shipping-options">
+        <label class="shipping-option">
+          <input type="radio" name="payment_method" value="card" required
+            {% if form_payment_method|default('card') != 'cash' %}checked{% endif %}>
+          Pay with card
+        </label>
+        <label class="shipping-option cash-pickup-option" id="pay-cash-option">
+          <input type="radio" name="payment_method" value="cash"
+            {% if form_payment_method == 'cash' %}checked{% endif %}>
+          Pay with cash at pick up
+        </label>
+      </div>
+      <p class="field-hint cash-pickup-option">Cash is only for studio pick up. Delivery is card only.</p>
+    </fieldset>
+
+    <p class="checkout-note" id="checkout-pay-note">
       {% if payments_on %}
-      You will pay by card on Stripe’s page (EEA cards typically 1.5% + €0.25, paid by the shop).
+      Card payments go through Stripe (EEA cards typically 1.5% + €0.25, paid by the shop). Cash is due when you collect.
       {% else %}
-      Card payments are off until STRIPE_SECRET_KEY is set on the server.
+      Card payments are off until STRIPE_SECRET_KEY is set on the server. You can still place a pick-up order and pay cash at the studio.
       {% endif %}
     </p>
-    <button type="submit" class="btn btn-primary btn-lg">{% if payments_on %}Pay with card{% else %}Place order{% endif %}</button>
+    <button type="submit" class="btn btn-primary btn-lg" id="checkout-submit">{% if payments_on %}Pay with card{% else %}Place order{% endif %}</button>
   </form>
 
   <aside class="order-summary">

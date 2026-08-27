@@ -203,7 +203,7 @@ Resend TXT/MX records for email ([#2](https://github.com/panagiod/print-me-maybe
 - Catalog with category filter (3D Prints / Laser Engraving); product pages can show a photo gallery
 - Session cart; quantity cannot exceed stock
 - Shipping chosen at checkout (see [Shipping](#shipping)): pick up free, Cyprus delivery €3.50, outside Cyprus €10
-- Checkout: name, email, phone (required for delivery), optional order notes, pick-up or delivery, then **Stripe Checkout** when `STRIPE_SECRET_KEY` is set
+- Checkout: name, email, phone (required for delivery), optional order notes, pick-up or delivery, **card (Stripe)** or **cash at pick up**
 - Customer order page at `/order/{unguessable-token}` — status, payment, tracking number, notes (times in Europe/Nicosia)
 - Studio at `/admin` (not linked in public nav): orders (search, shipping filters), tracking, customer/studio notes, copy customer link, resend mail, cash/bank paid, packing slip (print + PDF), cancel (Stripe refund + restock + customer email), catalog with photos, hide/show, add/edit/remove product + gallery
 - Emails via [Resend](https://resend.com): new order (studio + customer), ready to collect/pack, shipped (customer; delivery waits for tracking), cancelled (studio + customer), attack alerts
@@ -271,7 +271,7 @@ python3 -m pytest tests/ -v
 
 GitHub Actions (`.github/workflows/ci.yml`) runs on every pull request and on push to `main`: install cairo/pango (WeasyPrint), pip deps, pytest, then boot Uvicorn and `curl` `/health` and `/`.
 
-Shop tests cover pick-up (free), Cyprus delivery (€3.50, phone required), international delivery (€10), checkout notes, studio product delete (including the block when a product has already been ordered), admin cancel (restock; Stripe refund when paid by card, not for cash), cash/bank mark-paid, ready and shipped emails, shipping a tracking number to the customer order page, photo thumbs, Alembic upgrades from a legacy SQLite file, HTMX stock fragments, and packing-slip PDFs.
+Shop tests cover pick-up (free), Cyprus delivery (€3.50, phone required), international delivery (€10), checkout notes, **cash at pick up** (skips Stripe; delivery cannot be cash), studio product delete (including the block when a product has already been ordered), admin cancel (restock; Stripe refund when paid by card, not for cash), cash/bank mark-paid, ready and shipped emails, shipping a tracking number to the customer order page, photo thumbs, Alembic upgrades from a legacy SQLite file, HTMX stock fragments, and packing-slip PDFs.
 
 ## CI/CD deployment
 
@@ -364,12 +364,13 @@ Two dashboards that are easy to mix up:
 
 **Cart.** Stored in the signed session cookie (7 days). Add/update quantity is capped at remaining stock. Zero stock hides a product from the shop and the product page shows **Sold out** (no Add to cart). **Hidden** products (studio toggle) are omitted from the shop and product URLs 404. The cart shows the product subtotal only; shipping is not applied until checkout.
 
-**Checkout.** GET `/checkout` collects name, email, optional phone, optional order notes (colour, name, files), and a delivery choice (pick up vs ship). Delivery requires a destination (Cyprus or outside Cyprus), an address, and a phone number. POST `/checkout` then:
+**Checkout.** GET `/checkout` collects name, email, optional phone, optional order notes (colour, name, files), a delivery choice (pick up vs ship), and **payment** (card, or cash if pick up). Delivery requires a destination (Cyprus or outside Cyprus), an address, and a phone number. POST `/checkout` then:
 
 1. Recalculates shipping from the chosen method and destination (see [Shipping](#shipping)).
-2. If Stripe is configured, the browser goes to Stripe Checkout. Shipping is a separate Stripe line item when it is more than €0. The cart, shipping method, destination, unit prices, totals, notes, and phone are stored in SQLite (`pending_checkouts`) keyed by the Stripe session id (Stripe metadata is a backup). The order is created when Stripe sends `checkout.session.completed` to `POST /webhooks/stripe`, or when the customer lands on `GET /pay/success`. Both paths are idempotent and **empty the session cart**.
-3. If creating the order fails after payment (for example stock ran out), the shop refunds the PaymentIntent and emails the studio.
-4. Without Stripe, checkout is the no-card demo and still stores the same total (subtotal + shipping).
+2. **Cash at pick up:** places an Unpaid order immediately (`payment_method=cash`), skips Stripe, emails the customer to bring cash, and empties the cart.
+3. **Card** (when Stripe is configured): the browser goes to Stripe Checkout. Shipping is a separate Stripe line item when it is more than €0. The cart, shipping method, destination, unit prices, totals, notes, and phone are stored in SQLite (`pending_checkouts`) keyed by the Stripe session id (Stripe metadata is a backup). The order is created when Stripe sends `checkout.session.completed` to `POST /webhooks/stripe`, or when the customer lands on `GET /pay/success`. Both paths are idempotent and **empty the session cart**.
+4. If creating the order fails after a **card** payment (for example stock ran out), the shop refunds the PaymentIntent and emails the studio.
+5. Without Stripe, card checkout is the no-card demo and still stores the same total (subtotal + shipping). Cash at pick up still sets `payment_method=cash`.
 
 Pick-up orders store method `pickup` and address `Pick up at studio`. Delivery orders store `shipping_method`, `delivery_country` (`cyprus` or `other`), the typed address, and `customer_phone`. Customer notes are stored separately from studio notes.
 
@@ -399,6 +400,7 @@ Rates are decided at checkout, not from cart size. There is no free-shipping thr
 - Cart copy: “Pick up is free. Cyprus delivery is €3.50. Outside Cyprus is €10.”
 - Home hero: “Free pick up; €3.50 delivery in Cyprus; €10 shipping outside Cyprus.”
 - Checkout totals update in the browser when the customer switches pick-up / delivery or Cyprus / outside Cyprus. The server recomputes the same numbers on POST (and again from Stripe metadata after payment).
+- **Pay with cash at pick up** is offered on checkout when pick up is selected. That places an **Unpaid** order with `payment_method=cash` and does **not** open Stripe. Delivery is card only. Studio **Mark as paid (cash/bank)** when they collect.
 - The `orders` table stores `shipping_method`, `delivery_country`, `shipping_address`, `tracking_number`, `customer_notes`, `customer_phone`, `payment_method`, and a combined `total_cents` (subtotal + shipping). Shipping itself is also derived as `total_cents − item subtotal`.
 
 ## Studio admin
@@ -417,7 +419,7 @@ Public nav does not advertise `/admin`. Login: `/admin/login` on your domain (pr
 
 ### Daily order flow
 
-1. Open **Orders**. New paid checkouts show **Paid**. Use search or Pickup / Cyprus / Outside Cyprus chips on packing day.
+1. Open **Orders**. New **card** checkouts show **Paid**. Cash-at-pick-up orders show **Unpaid · cash**. Use search or Pickup / Cyprus / Outside Cyprus chips on packing day.
 2. Open the order. Set status **In progress** then **Ready to ship** as you work. Ready emails the customer once (pickup: collect at studio; delivery: packed for courier). Studio notes are yours; customer notes came from checkout.
 3. When it leaves: set status **Shipped**. For **delivery**, paste the courier number in **Tracking number** and Save — the customer is emailed only when a tracking number exists. Pickup customers get a collect-at-studio email (no tracking nag).
 4. You can add the tracking number later; saving a new number on an already-shipped delivery emails the customer again.
@@ -437,7 +439,9 @@ Stripe keeps the original card processing fee on a refund (see [Payments and ref
 
 ### Cash / bank
 
-Pickup customers may pay at the studio. On an **Unpaid** order, **Mark as paid (cash/bank)** sets Paid without calling Stripe. Cancelling that order will not attempt a card refund.
+Pickup customers can choose **Pay with cash at pick up** at checkout. The order is placed immediately (Unpaid, no Stripe). Confirmation mail tells them to bring cash; Ready / collect emails repeat the amount. On collection, **Mark as paid (cash/bank)** on the unpaid order. Cancelling that order will not attempt a card refund.
+
+Delivery cannot be cash — those orders still go to Stripe Checkout.
 
 ### Catalog
 
@@ -477,7 +481,7 @@ If they lose the email, copy the customer link or resend confirmation from the o
 
 ## Payments and refunds
 
-Card checkout uses Stripe Checkout (EUR). Production webhook: `https://print-me-maybe.com/webhooks/stripe` for `checkout.session.completed`. Secret: `STRIPE_WEBHOOK_SECRET` in `/etc/eshop.env`.
+Card checkout uses Stripe Checkout (EUR). **Cash at pick up** never calls Stripe. Production webhook: `https://print-me-maybe.com/webhooks/stripe` for `checkout.session.completed`. Secret: `STRIPE_WEBHOOK_SECRET` in `/etc/eshop.env`.
 
 **EEA cards** are typically **1.5% + €0.25** with no monthly Stripe fee.
 
@@ -486,7 +490,7 @@ Card checkout uses Stripe Checkout (EUR). Production webhook: `https://print-me-
 | Paid order | Charged the full total | You pay the processing fee |
 | Cancel in admin (card paid) | Full amount refunded to the original card | **Original fee is not returned** |
 | Cancel cash/bank paid | Refund in person | Nothing |
-| Cancel unpaid / no card | Nothing charged | Nothing |
+| Cancel unpaid cash-at-pick-up | Nothing charged | Nothing |
 
 There is no extra Stripe fee for issuing a **card** refund on standard Cyprus pricing. Bank-transfer refunds can have extra fees; this shop takes cards through Checkout.
 

@@ -150,11 +150,7 @@ def order_email_body(order: Order) -> str:
         lines.append(
             f"- {item.product_name} × {item.quantity} — {item.line_total_display}"
         )
-    pay_line = (
-        "Card payment received (Stripe)."
-        if order.paid
-        else "No payment was collected at checkout."
-    )
+    pay_line = _checkout_payment_line(order, for_customer=False)
     lines.extend(
         [
             "",
@@ -203,11 +199,7 @@ def customer_email_body(order: Order) -> str:
         "Free" if order.shipping_cents == 0 else format_money(order.shipping_cents)
     )
     method = order.shipping_label or "Shipping"
-    pay_line = (
-        "Card payment received. For custom names, photos, or files, reply or DM Instagram."
-        if order.paid
-        else "No payment was collected at checkout. For custom names, photos, or files, reply or DM Instagram."
-    )
+    pay_line = _checkout_payment_line(order, for_customer=True)
     bits = [
             f"Thank you for your {shop_name()} order #{order.id}.",
             "",
@@ -430,6 +422,27 @@ def notify_payment_failure(*, session_id: str, customer_email: str, reason: str,
         logger.exception("Could not email payment-failure alert for %s", session_id)
 
 
+def _checkout_payment_line(order: Order, *, for_customer: bool) -> str:
+    if order.paid and order.payment_method == "cash":
+        if for_customer:
+            return "Paid in cash or by bank transfer. For custom names, photos, or files, reply or DM Instagram."
+        return "Paid in cash/bank (marked in studio)."
+    if order.paid:
+        if for_customer:
+            return "Card payment received. For custom names, photos, or files, reply or DM Instagram."
+        return "Card payment received (Stripe)."
+    if order.pay_at_pickup:
+        if for_customer:
+            return (
+                f"Pay {order.total_display} in cash when you collect at the studio. "
+                "For custom names, photos, or files, reply or DM Instagram."
+            )
+        return "Customer will pay cash at pick up."
+    if for_customer:
+        return "No payment was collected at checkout. For custom names, photos, or files, reply or DM Instagram."
+    return "No payment was collected at checkout."
+
+
 def cancellation_email_subject(order: Order) -> str:
     return f"{shop_name()} order #{order.id} cancelled"
 
@@ -445,8 +458,10 @@ def cancellation_email_body(order: Order, *, refunded: bool) -> str:
             f"The card payment of {order.total_display} has been refunded. "
             "It can take a few business days to appear on your statement."
         )
-    elif order.payment_method == "cash" or (order.paid and order.payment_method == "cash"):
+    elif order.payment_method == "cash" and order.paid:
         money = "If you paid in cash or by bank transfer, we will refund that in person."
+    elif order.pay_at_pickup:
+        money = "No cash was collected — this was pay at pick up."
     else:
         money = "No payment was collected for this order."
     return "\n".join(
@@ -469,8 +484,10 @@ def cancellation_email_body(order: Order, *, refunded: bool) -> str:
 def _studio_cancellation_body(order: Order, *, refunded: bool) -> str:
     if refunded:
         money = "The card payment was refunded through Stripe."
-    elif order.payment_method == "cash":
+    elif order.payment_method == "cash" and order.paid:
         money = "This was marked paid in cash/bank — refund in person if needed."
+    elif order.pay_at_pickup:
+        money = "No cash was collected (pay at pick up)."
     elif order.paid:
         money = "Payment still shows as paid — check Stripe Dashboard."
     else:
@@ -529,6 +546,8 @@ def shipped_email_body(order: Order) -> str:
     if order.shipping_method == "pickup":
         intro = f"Your {shop_name()} order #{order.id} is ready to collect at the studio."
         extra = ["Bring this email or your order number.", ""]
+        if order.pay_at_pickup:
+            extra = [f"Please bring {order.total_display} in cash.", ""] + extra
     else:
         intro = f"Your {shop_name()} order #{order.id} has shipped."
         tracking = (order.tracking_number or "").strip()
@@ -590,8 +609,11 @@ def ready_email_body(order: Order) -> str:
         if order.lookup_token
         else shop_url()
     )
+    extra: list[str] = []
     if order.shipping_method == "pickup":
         intro = f"Your {shop_name()} order #{order.id} is ready to collect at the studio."
+        if order.pay_at_pickup:
+            extra = [f"Please bring {order.total_display} in cash.", ""]
     else:
         intro = (
             f"Your {shop_name()} order #{order.id} is packed and ready to hand to the courier. "
@@ -601,6 +623,7 @@ def ready_email_body(order: Order) -> str:
         [
             intro,
             "",
+            *extra,
             "View your order:",
             link,
             "",

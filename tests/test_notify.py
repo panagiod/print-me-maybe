@@ -144,6 +144,32 @@ def test_studio_email_includes_phone_and_notes() -> None:
     assert "ready to collect at the studio" in ready
 
 
+def test_cash_pickup_emails_explain_pay_at_studio() -> None:
+    order = Order(
+        id=12,
+        customer_name="Ada Lovelace",
+        customer_email="ada@example.com",
+        shipping_address="Pick up at studio",
+        total_cents=400,
+        created_at="2026-08-26",
+        items=_sample_order().items,
+        lookup_token="customer-order-token-12",
+        shipping_method="pickup",
+        payment_method="cash",
+        payment_status="unpaid",
+    )
+    studio = build_order_email(order).get_content()
+    from src.notify import customer_email_body
+
+    customer = customer_email_body(order)
+    assert "Customer will pay cash at pick up" in studio
+    assert "Pay €4.00 in cash when you collect" in customer
+    assert "Please bring €4.00 in cash" in ready_email_body(order)
+    assert "Please bring €4.00 in cash" in shipped_email_body(order)
+    unpaid_cancel = cancellation_email_body(order, refunded=False)
+    assert "No cash was collected" in unpaid_cancel
+
+
 def test_cancellation_email_mentions_refund() -> None:
     order = _sample_order()
     refunded = cancellation_email_body(order, refunded=True)

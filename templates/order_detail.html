@@ -4,7 +4,7 @@
 
 {% block content %}
 <h1 class="page-title">Order #{{ order.id }}</h1>
-<p class="order-meta">Placed {{ order.created_at_display }} · {{ order.status_label }} · {{ order.payment_label }}</p>
+<p class="order-meta">Placed {{ order.created_at_display }} · {{ order.status_label }} · {{ order.payment_label }}{% if order.pay_at_pickup %} — pay cash at pick up{% elif order.payment_method == "cash" %} (cash/bank){% endif %}</p>
 {% if order.status == "cancelled" %}
 <p class="checkout-note">This order was cancelled.{% if order.payment_status == "refunded" %} The card payment was refunded.{% endif %}</p>
 {% endif %}
@@ -19,6 +19,9 @@
     {% endif %}
     {% if order.shipping_label %}
     <p class="order-shipping-method">{{ order.shipping_label }}</p>
+    {% endif %}
+    {% if order.pay_at_pickup %}
+    <p class="order-payment-note">Pay {{ order.total_display }} in cash when you collect.</p>
     {% endif %}
     <p class="order-shipping-address">{{ order.shipping_address }}</p>
     {% if order.customer_notes %}
