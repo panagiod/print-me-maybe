@@ -38,6 +38,7 @@ from src.payments import create_checkout_session, paid_session, parse_webhook_ev
 from src.store import (
     build_cart_lines,
     cart_total_cents,
+    get_home_copy,
     get_order,
     get_order_by_token,
     get_product,
@@ -209,6 +210,7 @@ def _image_media_type(filename: str) -> str:
 @app.get("/", response_class=HTMLResponse)
 def home(request: Request, category: str | None = None) -> Any:
     cart = get_cart(request)
+    home_title, home_banner = get_home_copy()
     return templates.TemplateResponse(
         request,
         "index.html",
@@ -218,6 +220,8 @@ def home(request: Request, category: str | None = None) -> Any:
             "active_category": category,
             "cart_count": cart_count(cart),
             "shop_name": shop_name(),
+            "home_title": home_title,
+            "home_banner": home_banner,
         },
     )
 

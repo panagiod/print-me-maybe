@@ -291,6 +291,48 @@ def test_admin_can_add_rename_and_remove_genres() -> None:
     assert "already exists" in duplicate.text
 
 
+def test_admin_home_copy_saved_in_database() -> None:
+    init_schema()
+    seed_products()
+    client = TestClient(app)
+
+    guest = client.get("/admin/home", follow_redirects=False)
+    assert guest.status_code == 303
+
+    client.post("/admin/login", data={"password": "printmemaybe"})
+    page = client.get("/admin/home")
+    assert page.status_code == 200
+    assert "Personalized 3D prints" in page.text
+    assert "Made in Cyprus" in page.text
+
+    saved = client.post(
+        "/admin/home",
+        data={
+            "title": "Custom prints for your shelf.",
+            "banner": "Studio banner from admin. Pickup in Cyprus.",
+        },
+        follow_redirects=False,
+    )
+    assert saved.status_code == 303
+    home = client.get("/")
+    assert "Custom prints for your shelf." in home.text
+    assert "Studio banner from admin. Pickup in Cyprus." in home.text
+    assert "Personalized 3D prints" not in home.text
+
+    seed_products()
+    home = client.get("/")
+    assert "Custom prints for your shelf." in home.text
+    assert "Personalized 3D prints" not in home.text
+
+    blank = client.post(
+        "/admin/home",
+        data={"title": "  ", "banner": "Still a banner."},
+        follow_redirects=False,
+    )
+    assert blank.status_code == 400
+    assert "Title is required" in blank.text
+
+
 def test_shipping_calculation() -> None:
     assert shipping_cents("pickup") == 0
     assert shipping_cents("delivery", "cyprus") == CYPRUS_SHIPPING_CENTS

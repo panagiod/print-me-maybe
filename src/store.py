@@ -28,6 +28,15 @@ from src.models import (
 )
 
 PLACEHOLDER_IMAGE = "/static/images/products/placeholder.svg"
+DEFAULT_HOME_TITLE = "Personalized 3D prints,\nmade to order."
+DEFAULT_HOME_BANNER = (
+    "Baby gifts, keepsakes, fandom décor, household pieces, and toys from "
+    "@print.me.maybe — Harry Potter, Lord of the Rings, household, Pokémon, "
+    "and toys. Made in Cyprus. Free pick up; €3.50 delivery in Cyprus; "
+    "€10 delivery in Greece."
+)
+HOME_TITLE_MAX = 120
+HOME_BANNER_MAX = 800
 _GENRE_SELECT = """
     SELECT g.id, g.name, g.code_prefix, g.sort_order,
            (SELECT COUNT(*) FROM products p WHERE p.category = g.name) AS product_count
@@ -67,6 +76,62 @@ def unique_slug(name: str) -> str:
             candidate = f"{base}-{suffix}"
             suffix += 1
     return candidate
+
+
+def ensure_shop_settings() -> None:
+    """Insert default home copy only when those keys are missing. Never overwrite."""
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO shop_settings (key, value) VALUES ('home_title', ?)",
+            (DEFAULT_HOME_TITLE,),
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO shop_settings (key, value) VALUES ('home_banner', ?)",
+            (DEFAULT_HOME_BANNER,),
+        )
+
+
+def get_home_copy() -> tuple[str, str]:
+    """Home page title and banner from SQLite."""
+    with get_connection() as conn:
+        title_row = conn.execute(
+            "SELECT value FROM shop_settings WHERE key = 'home_title'"
+        ).fetchone()
+        banner_row = conn.execute(
+            "SELECT value FROM shop_settings WHERE key = 'home_banner'"
+        ).fetchone()
+    title = (title_row["value"] if title_row else DEFAULT_HOME_TITLE).strip()
+    banner = (banner_row["value"] if banner_row else DEFAULT_HOME_BANNER).strip()
+    return title or DEFAULT_HOME_TITLE, banner or DEFAULT_HOME_BANNER
+
+
+def save_home_copy(*, title: str, banner: str) -> None:
+    """Save studio edits to the home title and banner. Survives restart and deploy."""
+    cleaned_title = title.replace("\r\n", "\n").strip()
+    cleaned_banner = banner.replace("\r\n", "\n").strip()
+    if not cleaned_title:
+        raise ValueError("Title is required")
+    if not cleaned_banner:
+        raise ValueError("Banner text is required")
+    if len(cleaned_title) > HOME_TITLE_MAX:
+        raise ValueError(f"Title must be {HOME_TITLE_MAX} characters or fewer")
+    if len(cleaned_banner) > HOME_BANNER_MAX:
+        raise ValueError(f"Banner must be {HOME_BANNER_MAX} characters or fewer")
+    with get_connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO shop_settings (key, value) VALUES ('home_title', ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value
+            """,
+            (cleaned_title,),
+        )
+        conn.execute(
+            """
+            INSERT INTO shop_settings (key, value) VALUES ('home_banner', ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value
+            """,
+            (cleaned_banner,),
+        )
 
 
 def list_products(category: str | None = None) -> list[Product]:
