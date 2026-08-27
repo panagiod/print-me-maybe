@@ -27,6 +27,13 @@ cp "$APP_DIR/deploy/eshop.service" /etc/systemd/system/eshop.service
 cp "$APP_DIR/deploy/Caddyfile" /etc/caddy/Caddyfile
 chmod 750 "$APP_DIR/deploy/backup.sh" "$APP_DIR/deploy/deploy.sh" || true
 
+if ! crontab -l 2>/dev/null | grep -qF "/opt/eshop/deploy/backup.sh"; then
+  line="15 3 * * * /opt/eshop/deploy/backup.sh >> /var/lib/eshop/backups/cron.log 2>&1"
+  current="$(crontab -l 2>/dev/null || true)"
+  printf '%s\n%s\n' "$current" "$line" | crontab -
+  echo "Installed nightly SQLite backup cron (03:15 UTC)"
+fi
+
 chown -R eshop:eshop "$APP_DIR" /var/lib/eshop
 
 systemctl daemon-reload

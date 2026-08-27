@@ -6,8 +6,9 @@ import json
 import re
 import secrets
 import unicodedata
+from dataclasses import replace
 from decimal import Decimal, InvalidOperation
-from typing import Iterable
+from typing import Any, Iterable
 
 from src.db import get_connection
 from src.models import CartLine, Order, OrderItem, Product
@@ -220,6 +221,47 @@ def create_product(
     return Product.from_row(row)
 
 
+def update_product(
+    product_id: int,
+    *,
+    name: str,
+    description: str,
+    price_cents: int,
+    category: str,
+    stock: int,
+    image_url: str | None = None,
+) -> Product:
+    """Update listing fields from the studio edit form. Slug stays the same."""
+    existing = get_product(product_id)
+    if not existing:
+        raise ValueError("Product not found")
+    cleaned_name = name.strip()
+    if not cleaned_name:
+        raise ValueError("Name is required")
+    cleaned_description = description.strip()
+    if not cleaned_description:
+        raise ValueError("Description is required")
+    cleaned_category = category.strip()
+    if not cleaned_category:
+        raise ValueError("Category is required")
+    if price_cents <= 0:
+        raise ValueError("Price must be greater than zero")
+    photo = (image_url or "").strip() or existing.image_url
+    qty = max(0, stock)
+
+    with get_connection() as conn:
+        conn.execute(
+            """
+            UPDATE products
+            SET name = ?, description = ?, price_cents = ?, category = ?, stock = ?, image_url = ?
+            WHERE id = ?
+            """,
+            (cleaned_name, cleaned_description, price_cents, cleaned_category, qty, photo, product_id),
+        )
+        row = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
+    return Product.from_row(row)
+
+
 def list_orders(status: str | None = None) -> list[Order]:
     """Newest-first order list for the studio admin."""
     query = "SELECT * FROM orders"
@@ -326,6 +368,10 @@ def _order_from_row(conn, row) -> Order:
         payment_status=row["payment_status"]
         if "payment_status" in keys and row["payment_status"]
         else "unpaid",
+        shipping_method=row["shipping_method"] if "shipping_method" in keys and row["shipping_method"] else "",
+        delivery_country=row["delivery_country"]
+        if "delivery_country" in keys and row["delivery_country"]
+        else "",
     )
 
 
@@ -350,6 +396,99 @@ def cart_from_snapshot(raw: str) -> dict[str, int]:
     return cart
 
 
+def cart_json_from_lines(lines: list[CartLine]) -> str:
+    """Persist product id, qty, and the unit price the customer was charged."""
+    return json.dumps(
+        [[line.product.id, line.quantity, line.product.price_cents] for line in lines],
+        separators=(",", ":"),
+    )
+
+
+def lines_from_cart_json(raw: str) -> list[CartLine]:
+    """Rebuild cart lines, preferring stored unit prices when present."""
+    try:
+        pairs = json.loads(raw or "[]")
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(pairs, list):
+        return []
+    ids: list[int] = []
+    parsed: list[tuple[int, int, int | None]] = []
+    for item in pairs:
+        if not isinstance(item, list) or len(item) < 2:
+            continue
+        try:
+            pid, qty = int(item[0]), int(item[1])
+            price = int(item[2]) if len(item) > 2 else None
+        except (TypeError, ValueError):
+            continue
+        if pid > 0 and qty > 0:
+            ids.append(pid)
+            parsed.append((pid, qty, price))
+    products = get_products_by_ids(ids)
+    lines: list[CartLine] = []
+    for pid, qty, price in parsed:
+        product = products.get(pid)
+        if not product:
+            continue
+        if price is not None and price > 0:
+            product = replace(product, price_cents=price)
+        lines.append(CartLine(product=product, quantity=qty))
+    return lines
+
+
+def save_pending_checkout(
+    *,
+    session_id: str,
+    lines: list[CartLine],
+    customer_name: str,
+    customer_email: str,
+    shipping_address: str,
+    shipping_method: str,
+    delivery_country: str,
+    shipping_cents: int,
+    total_cents: int,
+) -> None:
+    cleaned = (session_id or "").strip()
+    if not cleaned:
+        raise ValueError("Missing Stripe session id")
+    with get_connection() as conn:
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO pending_checkouts (
+                session_id, cart_json, customer_name, customer_email, shipping_address,
+                shipping_method, delivery_country, shipping_cents, total_cents
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                cleaned,
+                cart_json_from_lines(lines),
+                customer_name,
+                customer_email,
+                shipping_address,
+                shipping_method,
+                delivery_country or "",
+                max(0, shipping_cents),
+                total_cents,
+            ),
+        )
+
+
+def get_pending_checkout(session_id: str) -> dict[str, Any] | None:
+    cleaned = (session_id or "").strip()
+    if not cleaned:
+        return None
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM pending_checkouts WHERE session_id = ?",
+            (cleaned,),
+        ).fetchone()
+    if not row:
+        return None
+    return {key: row[key] for key in row.keys()}
+
+
 def place_order(
     *,
     customer_name: str,
@@ -357,17 +496,35 @@ def place_order(
     shipping_address: str,
     lines: list[CartLine],
     shipping_cents: int = 0,
+    shipping_method: str = "",
+    delivery_country: str = "",
     paid: bool = False,
+    stripe_session_id: str | None = None,
 ) -> int:
-    """Persist an order and decrement stock atomically."""
+    """Persist an order and decrement stock atomically.
+
+    When stripe_session_id is set, the Stripe mapping is written in the same
+    transaction so webhook and /pay/success cannot double-create an order.
+    """
     if not lines:
         raise ValueError("Cart is empty")
 
     total = cart_total_cents(lines) + max(0, shipping_cents)
     payment_status = "paid" if paid else "unpaid"
+    method = (shipping_method or "").strip()
+    country = (delivery_country or "").strip()
+    session_id = (stripe_session_id or "").strip()
 
     with get_connection() as conn:
         conn.execute("BEGIN IMMEDIATE")
+        if session_id:
+            existing = conn.execute(
+                "SELECT order_id FROM stripe_sessions WHERE session_id = ?",
+                (session_id,),
+            ).fetchone()
+            if existing:
+                return int(existing["order_id"])
+
         for line in lines:
             row = conn.execute(
                 "SELECT stock FROM products WHERE id = ?",
@@ -381,13 +538,22 @@ def place_order(
             """
             INSERT INTO orders (
                 customer_name, customer_email, shipping_address, total_cents,
-                status, lookup_token, payment_status
+                status, lookup_token, payment_status, shipping_method, delivery_country
             )
-            VALUES (?, ?, ?, ?, 'new', ?, ?)
+            VALUES (?, ?, ?, ?, 'new', ?, ?, ?, ?)
             """,
-            (customer_name, customer_email, shipping_address, total, token, payment_status),
+            (
+                customer_name,
+                customer_email,
+                shipping_address,
+                total,
+                token,
+                payment_status,
+                method,
+                country,
+            ),
         )
-        order_id = cursor.lastrowid
+        order_id = int(cursor.lastrowid)
 
         for line in lines:
             conn.execute(
@@ -402,7 +568,13 @@ def place_order(
                 (line.quantity, line.product.id),
             )
 
-    return int(order_id)
+        if session_id:
+            conn.execute(
+                "INSERT INTO stripe_sessions (session_id, order_id) VALUES (?, ?)",
+                (session_id, order_id),
+            )
+
+    return order_id
 
 
 def order_id_for_stripe_session(session_id: str) -> int | None:

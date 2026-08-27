@@ -132,12 +132,14 @@ def order_email_body(order: Order) -> str:
     shipping = (
         "Free" if order.shipping_cents == 0 else format_money(order.shipping_cents)
     )
+    method = order.shipping_label or "Shipping"
     lines = [
         f"New order #{order.id} — {shop_name()}",
         "",
         "Customer",
         f"Name: {order.customer_name}",
         f"Email: {order.customer_email}",
+        f"Method: {method}",
         "Address:",
         order.shipping_address,
         "",
@@ -180,31 +182,49 @@ def build_order_email(order: Order) -> EmailMessage:
     return msg
 
 
-def build_customer_email(order: Order) -> EmailMessage:
-    """Confirmation to the buyer with the unguessable order link."""
+def customer_email_subject(order: Order) -> str:
+    return f"{shop_name()} order #{order.id}"
+
+
+def customer_email_body(order: Order) -> str:
     link = (
         f"{shop_url()}/order/{order.lookup_token}"
         if order.lookup_token
         else shop_url()
     )
-    lines = [
-        f"Thank you for your {shop_name()} order #{order.id}.",
-        "",
-        f"Total: {order.total_display}",
-        "",
-        "View your order:",
-        link,
-        "",
+    shipping = (
+        "Free" if order.shipping_cents == 0 else format_money(order.shipping_cents)
+    )
+    method = order.shipping_label or "Shipping"
+    pay_line = (
         "Card payment received. For custom names, photos, or files, reply or DM Instagram."
         if order.paid
-        else "No payment was collected at checkout. For custom names, photos, or files, reply or DM Instagram.",
-        "",
-    ]
+        else "No payment was collected at checkout. For custom names, photos, or files, reply or DM Instagram."
+    )
+    return "\n".join(
+        [
+            f"Thank you for your {shop_name()} order #{order.id}.",
+            "",
+            f"Method: {method}",
+            f"Shipping: {shipping}",
+            f"Total: {order.total_display}",
+            "",
+            "View your order:",
+            link,
+            "",
+            pay_line,
+            "",
+        ]
+    )
+
+
+def build_customer_email(order: Order) -> EmailMessage:
+    """Confirmation to the buyer with the unguessable order link."""
     msg = EmailMessage()
-    msg["Subject"] = f"{shop_name()} order #{order.id}"
-    msg["From"] = smtp_user()
+    msg["Subject"] = customer_email_subject(order)
+    msg["From"] = smtp_user() or resend_from()
     msg["To"] = order.customer_email
-    msg.set_content("\n".join(lines))
+    msg.set_content(customer_email_body(order))
     return msg
 
 
@@ -330,13 +350,60 @@ def notify_new_order(order: Order) -> bool:
     except Exception:
         logger.exception("Could not email order #%s", order.id)
         return False
-    if smtp_password():
-        try:
-            _send_via_smtp(build_customer_email(order))
-        except Exception:
-            logger.exception("Could not email customer for order #%s", order.id)
+    try:
+        _deliver_customer(order)
+    except Exception:
+        logger.exception("Could not email customer for order #%s", order.id)
     logger.info("Order #%s emailed to %s", order.id, notify_email())
     return True
+
+
+def _deliver_customer(order: Order) -> None:
+    if not order.customer_email:
+        return
+    if smtp_password():
+        _send_via_smtp(build_customer_email(order))
+        return
+    if not resend_api_key():
+        return
+    _send_via_resend(
+        subject=customer_email_subject(order),
+        body=customer_email_body(order),
+        to=order.customer_email,
+    )
+
+
+def notify_payment_failure(*, session_id: str, customer_email: str, reason: str, refunded: bool) -> None:
+    """Alert the studio when a paid Stripe session could not become an order."""
+    if not mail_configured():
+        logger.error(
+            "Paid Stripe session %s failed (%s); mail not configured",
+            session_id,
+            reason,
+        )
+        return
+    refund_line = (
+        "Stripe was asked to refund the payment."
+        if refunded
+        else "Refund failed or was skipped — check Stripe Dashboard."
+    )
+    body = (
+        f"A card payment completed but the shop could not create the order.\n\n"
+        f"Stripe session: {session_id}\n"
+        f"Customer: {customer_email or '(unknown)'}\n"
+        f"Reason: {reason}\n\n"
+        f"{refund_line}\n\n"
+        f"Studio: {shop_url()}/admin/orders\n"
+    )
+    try:
+        _deliver_studio(
+            subject=f"{shop_name()}: paid checkout failed to create an order",
+            body=body,
+            reply_to=customer_email,
+            name="Checkout failure",
+        )
+    except Exception:
+        logger.exception("Could not email payment-failure alert for %s", session_id)
 
 
 def schedule_order_email(order: Order) -> None:

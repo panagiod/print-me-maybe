@@ -79,7 +79,7 @@ Track progress in [Issues](https://github.com/panagiod/print-me-maybe/issues). S
    Manual update anytime: `bash /opt/eshop/deploy/deploy.sh`
 
    `install.sh` generates `SESSION_SECRET` and `ADMIN_PASSWORD` and prints the admin password once. Caddy gets HTTPS automatically after DNS points at the server.
-5. **Stripe** — [#6](https://github.com/panagiod/print-me-maybe/issues/6) [dashboard.stripe.com](https://dashboard.stripe.com) → activate payments, EUR, copy the **secret** key (`sk_live_…` or `sk_test_…` for a dry run) into `STRIPE_SECRET_KEY`. Checkout redirects to Stripe and only creates the order after `payment_status=paid`.
+5. **Stripe** — [#6](https://github.com/panagiod/print-me-maybe/issues/6) [dashboard.stripe.com](https://dashboard.stripe.com) → activate payments, EUR, copy the **secret** key into `STRIPE_SECRET_KEY`. Add a webhook endpoint `https://print-me-maybe.com/webhooks/stripe` for `checkout.session.completed` and put the signing secret in `STRIPE_WEBHOOK_SECRET`. Checkout redirects to Stripe; the order is created from the webhook (or `/pay/success`) only after `payment_status=paid`.
 6. **Resend** — [#2](https://github.com/panagiod/print-me-maybe/issues/2) [resend.com/domains](https://resend.com/domains) → add `print-me-maybe.com` (not `onrender.com`) → paste DNS records → wait for **Verified** → set `RESEND_FROM=Print Me Maybe <orders@print-me-maybe.com>`.
 7. **Smoke test** — [#4](https://github.com/panagiod/print-me-maybe/issues/4) Check `https://print-me-maybe.com/health` — `"payments": true`, `"persistent": true`. Place a **test** card order (`ACCT-000015`), reboot the VPS, confirm the order is still in studio.
 
@@ -215,13 +215,14 @@ Resend TXT/MX records for email ([#2](https://github.com/panagiod/print-me-maybe
 ```
 src/                 FastAPI app
   main.py            Storefront routes (home, product, cart, checkout, health)
-  admin.py           Studio login, orders, stock, add/remove product, test email
-  store.py           Products, cart lines, place_order
+  admin.py           Studio login, orders, stock, add/edit/remove product, test email
+  store.py           Products, cart lines, place_order, pending Stripe checkouts
   db.py              SQLite schema and DATA_DIR
   models.py          Product/Order types, EUR formatting, shipping rules
   seed.py            Catalog copied from Instagram listings
-  payments.py        Stripe Checkout
-  notify.py          Resend/SMTP mail, attack alerts
+  payments.py        Stripe Checkout, webhooks, refunds
+  fulfill.py         Paid Stripe session → order (idempotent)
+  notify.py          Resend/SMTP mail, attack alerts, customer confirmation
   ratelimit.py       Per-IP limits
   security.py        Secrets, HTTPS cookies, CSP/HSTS
   uploads.py         Admin product photos
@@ -326,6 +327,7 @@ Set these in `/etc/eshop.env` on the server (`deploy/env.example`). Never commit
 | `RESEND_API_KEY` | empty (mail skipped) | Resend API key (`re_…`) |
 | `RESEND_FROM` | `Print Me Maybe <beth.t@example.com>` | Must be an address on a **verified** Resend domain |
 | `STRIPE_SECRET_KEY` | empty (demo checkout, no card) | Stripe secret key (`sk_test_…` or `sk_live_…`) |
+| `STRIPE_WEBHOOK_SECRET` | empty | Stripe webhook signing secret (`whsec_…`) for `POST /webhooks/stripe` |
 | `ATTACK_ALERT_COOLDOWN` | `3600` | Seconds between similar security emails |
 | `NOTIFY_SYNC` | unset | Set to `1` in tests so checkout waits for mail |
 | `RATE_LIMIT_DISABLED` | unset | Set to `1` to turn limits off (tests) |
@@ -350,12 +352,13 @@ Two dashboards that are easy to mix up:
 **Checkout.** GET `/checkout` collects name, email, and a delivery choice (pick up vs ship). Delivery requires a destination (Cyprus or outside Cyprus) and an address. POST `/checkout` then:
 
 1. Recalculates shipping from the chosen method and destination (see [Shipping](#shipping)).
-2. If Stripe is configured, the browser goes to Stripe Checkout. Shipping is a separate Stripe line item when it is more than €0. The order is created only on `GET /pay/success` after Stripe reports `payment_status=paid`. Cart, shipping method, destination, and totals are stored in Stripe metadata so a lost cookie cannot drop a paid order.
-3. Without Stripe, checkout is the no-card demo and still stores the same total (subtotal + shipping).
+2. If Stripe is configured, the browser goes to Stripe Checkout. Shipping is a separate Stripe line item when it is more than €0. The cart, shipping method, destination, unit prices, and totals are stored in SQLite (`pending_checkouts`) keyed by the Stripe session id (Stripe metadata is a backup). The order is created when Stripe sends `checkout.session.completed` to `POST /webhooks/stripe`, or when the customer lands on `GET /pay/success`. Both paths are idempotent.
+3. If creating the order fails after payment (for example stock ran out), the shop refunds the PaymentIntent and emails the studio.
+4. Without Stripe, checkout is the no-card demo and still stores the same total (subtotal + shipping).
 
-Pick-up orders store the shipping address as `Pick up at studio`. Delivery orders store the address the customer typed.
+Pick-up orders store method `pickup` and address `Pick up at studio`. Delivery orders store `shipping_method`, `delivery_country` (`cyprus` or `other`), and the typed address.
 
-**Customer order URL.** `/order/{lookup_token}` — random token, not the numeric id. The confirmation and order pages show the shipping line (Free, €3.50, or €10) plus the total.
+**Customer order URL.** `/order/{lookup_token}` — random token, not the numeric id. Confirmation, order pages, and emails show the shipping method label plus Free / €3.50 / €10.
 
 ## Shipping
 
@@ -370,7 +373,7 @@ Rates are decided at checkout, not from cart size. There is no free-shipping thr
 - Cart copy: “Pick up is free. Cyprus delivery is €3.50. Outside Cyprus is €10.”
 - Home hero: “Free pick up; €3.50 delivery in Cyprus; €10 shipping outside Cyprus.”
 - Checkout totals update in the browser when the customer switches pick-up / delivery or Cyprus / outside Cyprus. The server recomputes the same numbers on POST (and again from Stripe metadata after payment).
-- The `orders` table stores `shipping_address` and a combined `total_cents` (subtotal + shipping). Shipping itself is derived as `total_cents − item subtotal`.
+- The `orders` table stores `shipping_method`, `delivery_country`, `shipping_address`, and a combined `total_cents` (subtotal + shipping). Shipping itself is also derived as `total_cents − item subtotal`.
 
 ## Studio admin
 
@@ -380,7 +383,7 @@ Public nav does not advertise `/admin`. Login: `/admin/login` on your domain.
 |------|----------------|
 | `/admin/orders` | Filter by status; Paid/Unpaid; **Send test email** |
 | `/admin/orders/{id}` | Status, notes, cancel (restock) / reopen (deduct again) |
-| `/admin/stock` | Add product (name, description, EUR price, category, photo, qty); set stock; **Remove** unused products |
+| `/admin/stock` | Add product; **Edit** name/price/description/category/photo/qty; set stock; **Remove** unused products |
 
 **Remove a product.** Each row on `/admin/stock` has a **Remove** button (`POST /admin/products/{id}/delete`). Deletion is a hard delete from the `products` table. It is **blocked** if that product appears on any past order (foreign key on `order_items`). In that case the studio sees: *This product has been ordered before. Set stock to 0 to hide it from the shop.* Setting stock to 0 still hides the item from the public catalog without deleting history.
 
@@ -435,17 +438,17 @@ Rate limits (in-memory, per instance, by IP):
 | Checkout POST | 12 / hour |
 | Cart POST | 60 / minute |
 
-`/health`, `/static/`, `/media/` are exempt. HTTP 429 includes `Retry-After`.
+`/health`, `/static/`, `/media/`, `/webhooks/` are exempt. HTTP 429 includes `Retry-After`.
 
 ## Backups
 
-SQLite lives at `/var/lib/eshop/eshop.db`. Nightly local copies:
+SQLite lives at `/var/lib/eshop/eshop.db`. `install.sh` and `deploy.sh` install a root cron job that runs at **03:15 UTC**:
 
 ```bash
-15 3 * * * /opt/eshop/deploy/backup.sh
+15 3 * * * /opt/eshop/deploy/backup.sh >> /var/lib/eshop/backups/cron.log 2>&1
 ```
 
-Copy a backup off the server occasionally (`scp`) or enable a Hetzner snapshot (extra cost). Reboot the VPS after a test order and confirm studio still shows it.
+Copies older than 14 days are deleted. Copy a backup off the server occasionally (`scp`) or enable a Hetzner snapshot (extra cost). Reboot the VPS after a test order and confirm studio still shows it.
 
 ## License
 

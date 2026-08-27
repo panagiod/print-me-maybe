@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -19,17 +20,18 @@ from src.models import (
     DELIVERY_COUNTRIES,
     PICKUP_ADDRESS_LABEL,
     SHIPPING_METHODS,
+    Order,
     format_money,
     shipping_cents,
 )
 from src.ratelimit import RateLimitMiddleware
 from src.security import SecurityHeadersMiddleware, require_production_secrets, session_https_only, session_secret
 from src.seed import seed_products
+from src.fulfill import PaidCheckoutError, complete_paid_session
 from src.notify import mail_configured, schedule_order_email
-from src.payments import create_checkout_session, paid_session, payments_configured
+from src.payments import create_checkout_session, paid_session, parse_webhook_event, payments_configured
 from src.store import (
     build_cart_lines,
-    cart_from_snapshot,
     cart_total_cents,
     get_order,
     get_order_by_token,
@@ -39,11 +41,12 @@ from src.store import (
     list_products,
     order_id_for_stripe_session,
     place_order,
-    remember_stripe_session,
+    save_pending_checkout,
 )
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = session_secret()
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -325,7 +328,7 @@ def checkout_submit(
 
     if payments_configured():
         try:
-            pay_url = create_checkout_session(
+            pay_url, session_id = create_checkout_session(
                 lines=lines,
                 total_cents=totals["total_cents"],
                 customer_name=name,
@@ -335,6 +338,17 @@ def checkout_submit(
                 delivery_country=country or "",
                 shipping_cents=totals["shipping_cents"],
                 origin=str(request.base_url).rstrip("/"),
+            )
+            save_pending_checkout(
+                session_id=session_id,
+                lines=lines,
+                customer_name=name,
+                customer_email=email,
+                shipping_address=address,
+                shipping_method=method,
+                delivery_country=country or "",
+                shipping_cents=totals["shipping_cents"],
+                total_cents=totals["total_cents"],
             )
         except Exception as exc:
             return templates.TemplateResponse(
@@ -358,6 +372,8 @@ def checkout_submit(
             shipping_address=address,
             lines=lines,
             shipping_cents=totals["shipping_cents"],
+            shipping_method=method,
+            delivery_country=country or "",
         )
     except ValueError as exc:
         return templates.TemplateResponse(
@@ -402,23 +418,8 @@ def pay_success(request: Request, session_id: str = "") -> Any:
         order = get_order(existing)
         if not order:
             raise HTTPException(status_code=404, detail="Order not found")
-        totals = {
-            "subtotal_cents": order.subtotal_cents,
-            "shipping_cents": order.shipping_cents,
-            "total_cents": order.total_cents,
-        }
-        return templates.TemplateResponse(
-            request,
-            "order_complete.html",
-            {
-                "order_id": order.id,
-                "lookup_token": order.lookup_token,
-                "cart_count": cart_count(get_cart(request)),
-                "shop_name": shop_name(),
-                "paid": True,
-                **totals,
-            },
-        )
+        return _paid_complete_page(request, order)
+
     try:
         session = paid_session(session_id)
     except Exception as exc:
@@ -426,59 +427,60 @@ def pay_success(request: Request, session_id: str = "") -> Any:
     if not session:
         raise HTTPException(status_code=400, detail="Payment not completed")
 
-    meta = session.get("metadata") or {}
-    snapshot = str(meta.get("cart") or "")
-    cart = cart_from_snapshot(snapshot) or get_cart(request)
-    lines = build_cart_lines(cart)
-    if not lines:
-        raise HTTPException(
-            status_code=400,
-            detail="Could not rebuild the cart after payment. Contact the studio with your Stripe receipt.",
-        )
-    method = str(meta.get("shipping_method") or "pickup").strip().lower()
-    if method not in SHIPPING_METHODS:
-        method = "pickup"
-    country_raw = str(meta.get("delivery_country") or "cyprus").strip().lower()
-    country = country_raw if country_raw in DELIVERY_COUNTRIES else "cyprus"
-    totals = checkout_totals(
-        lines,
-        shipping_method=method,
-        delivery_country=country if method == "delivery" else None,
-    )
-    paid_amount = int(session.get("amount_total") or 0)
-    expected = int(meta.get("total_cents") or totals["total_cents"])
-    if paid_amount != expected:
-        raise HTTPException(status_code=400, detail="Paid amount does not match the cart. Contact the studio.")
-
     try:
-        order_id = place_order(
-            customer_name=str(meta.get("customer_name") or "").strip() or "Customer",
-            customer_email=str(meta.get("customer_email") or "").strip(),
-            shipping_address=str(meta.get("shipping_address") or "").strip() or PICKUP_ADDRESS_LABEL,
-            lines=lines,
-            shipping_cents=totals["shipping_cents"],
-            paid=True,
-        )
-    except ValueError as exc:
+        order = complete_paid_session(session)
+    except PaidCheckoutError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    remember_stripe_session(session_id, order_id)
     save_cart(request, {})
-    order = get_order(order_id)
-    if order:
-        schedule_order_email(order)
+    return _paid_complete_page(request, order)
+
+
+def _paid_complete_page(request: Request, order: Order) -> Any:
+    totals = {
+        "subtotal_cents": order.subtotal_cents,
+        "shipping_cents": order.shipping_cents,
+        "total_cents": order.total_cents,
+    }
     return templates.TemplateResponse(
         request,
         "order_complete.html",
         {
-            "order_id": order_id,
-            "lookup_token": order.lookup_token if order else "",
-            "cart_count": 0,
+            "order_id": order.id,
+            "lookup_token": order.lookup_token,
+            "cart_count": cart_count(get_cart(request)),
             "shop_name": shop_name(),
             "paid": True,
             **totals,
         },
     )
+
+
+@app.post("/webhooks/stripe")
+async def stripe_webhook(request: Request) -> JSONResponse:
+    """Create the order when Stripe confirms payment, even if the browser never returns."""
+    payload = await request.body()
+    signature = request.headers.get("stripe-signature", "")
+    try:
+        event = parse_webhook_event(payload, signature)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    if event.get("type") != "checkout.session.completed":
+        return JSONResponse({"received": True})
+
+    session = event.get("data", {}).get("object") or {}
+    if not isinstance(session, dict):
+        return JSONResponse({"received": True})
+    if session.get("payment_status") != "paid":
+        return JSONResponse({"received": True})
+
+    try:
+        complete_paid_session(session)
+    except PaidCheckoutError as exc:
+        logger.warning("Webhook could not create order: %s", exc)
+        return JSONResponse({"received": True, "error": str(exc)})
+    return JSONResponse({"received": True})
 
 
 @app.get("/order/{token}", response_class=HTMLResponse)

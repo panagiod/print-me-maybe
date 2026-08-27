@@ -17,7 +17,7 @@ from starlette.types import ASGIApp
 BASE_DIR = Path(__file__).resolve().parent.parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
-EXEMPT_PREFIXES = ("/health", "/static/", "/media/")
+EXEMPT_PREFIXES = ("/health", "/static/", "/media/", "/webhooks/")
 
 
 class RateLimiter:

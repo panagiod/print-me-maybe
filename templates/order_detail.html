@@ -11,6 +11,9 @@
     <h2>Shipping</h2>
     <p class="order-shipping-name">{{ order.customer_name }}</p>
     <p class="order-shipping-email">{{ order.customer_email }}</p>
+    {% if order.shipping_label %}
+    <p class="order-shipping-method">{{ order.shipping_label }}</p>
+    {% endif %}
     <p class="order-shipping-address">{{ order.shipping_address }}</p>
   </section>
 

@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+
+{% block title %}Edit {{ product.name }} — {{ shop_name }}{% endblock %}
+
+{% block content %}
+<p class="breadcrumb"><a href="/admin/stock">Stock</a> / Edit</p>
+<h1 class="page-title">Edit {{ product.name }}</h1>
+
+{% if error %}
+<div class="alert alert-error" role="alert">{{ error }}</div>
+{% endif %}
+
+<form action="/admin/products/{{ product.id }}/edit" method="post" enctype="multipart/form-data" class="checkout-form add-product-form">
+  <fieldset>
+    <legend>Listing</legend>
+    <label>
+      Name
+      <input type="text" name="name" required value="{{ form_name }}">
+    </label>
+    <label>
+      Description
+      <textarea name="description" rows="3" required>{{ form_description }}</textarea>
+    </label>
+    <label>
+      Price (€)
+      <input type="text" name="price" inputmode="decimal" required value="{{ form_price }}">
+    </label>
+    <label>
+      Category
+      <select name="category" required>
+        {% for cat in categories %}
+        <option value="{{ cat }}" {% if form_category == cat %}selected{% endif %}>{{ cat }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>
+      Stock
+      <input type="number" name="stock" min="0" value="{{ form_stock }}">
+    </label>
+    <label>
+      Replace photo
+      <input type="file" name="image" accept="image/jpeg,image/png,image/webp,image/gif">
+    </label>
+    <p class="checkout-note">Leave the photo empty to keep the current image. The URL slug does not change.</p>
+    <button type="submit" class="btn btn-primary">Save product</button>
+  </fieldset>
+</form>
+{% endblock %}

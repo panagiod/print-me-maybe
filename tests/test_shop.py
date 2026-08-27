@@ -176,6 +176,14 @@ def test_cyprus_delivery_charges_standard_shipping() -> None:
     assert checkout.status_code == 200
     assert f"€{total / 100:.2f}" in checkout.text
     assert "€3.50" in checkout.text
+    order_id = int(checkout.text.split("#")[1].split("<")[0])
+    from src.store import get_order
+
+    order = get_order(order_id)
+    assert order is not None
+    assert order.shipping_method == "delivery"
+    assert order.delivery_country == "cyprus"
+    assert order.shipping_label == "Delivery in Cyprus"
 
 
 def test_admin_requires_login() -> None:
@@ -358,6 +366,39 @@ def test_admin_add_product_shows_in_shop() -> None:
     seed_products()
     still_there = next(p for p in list_all_products() if p.slug == "studio-test-vase")
     assert still_there.price_cents == 1250
+
+
+def test_admin_edit_product() -> None:
+    init_schema()
+    seed_products()
+
+    client = TestClient(app)
+    client.post("/admin/login", data={"password": "printmemaybe"})
+    product = next(p for p in list_all_products() if p.slug == "glasses-case")
+    page = client.get(f"/admin/products/{product.id}/edit")
+    assert page.status_code == 200
+    assert product.name in page.text
+
+    saved = client.post(
+        f"/admin/products/{product.id}/edit",
+        data={
+            "name": "Floral Case Updated",
+            "description": "Updated description.",
+            "price": "6.50",
+            "category": "3D Prints",
+            "stock": "9",
+        },
+        follow_redirects=False,
+    )
+    assert saved.status_code == 303
+    updated = next(p for p in list_all_products() if p.id == product.id)
+    assert updated.name == "Floral Case Updated"
+    assert updated.price_cents == 650
+    assert updated.stock == 9
+    assert updated.slug == "glasses-case"
+    home = client.get("/")
+    assert "Floral Case Updated" in home.text
+    assert "€6.50" in home.text
 
 
 def test_admin_delete_product() -> None:
