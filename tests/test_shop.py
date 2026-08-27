@@ -655,8 +655,8 @@ def test_order_list_date_filter_and_sort() -> None:
     client.post(
         "/checkout",
         data={
-            "customer_name": "Aug Twenty",
-            "customer_email": "twenty@example.com",
+            "customer_name": "Nicosia Early",
+            "customer_email": "early@example.com",
             "shipping_method": "pickup",
         },
     )
@@ -664,8 +664,8 @@ def test_order_list_date_filter_and_sort() -> None:
     client.post(
         "/checkout",
         data={
-            "customer_name": "Aug TwentyOne",
-            "customer_email": "twentyone@example.com",
+            "customer_name": "Nicosia Late",
+            "customer_email": "late@example.com",
             "shipping_method": "pickup",
         },
     )
@@ -676,23 +676,23 @@ def test_order_list_date_filter_and_sort() -> None:
         conn.execute("UPDATE orders SET created_at = ? WHERE id = ?", ("2026-08-20 22:00:00", newer_id))
 
     same_day = list_orders(date_from="2026-08-20", date_to="2026-08-20")
-    assert [order.customer_name for order in same_day] == ["Aug Twenty"]
+    assert [order.customer_name for order in same_day] == ["Nicosia Early"]
     next_day = list_orders(date_from="2026-08-21", date_to="2026-08-21")
-    assert [order.customer_name for order in next_day] == ["Aug TwentyOne"]
+    assert [order.customer_name for order in next_day] == ["Nicosia Late"]
     oldest = list_orders(sort="oldest")
-    assert [order.customer_name for order in oldest] == ["Aug Twenty", "Aug TwentyOne"]
+    assert [order.customer_name for order in oldest] == ["Nicosia Early", "Nicosia Late"]
     newest = list_orders(sort="newest")
-    assert [order.customer_name for order in newest] == ["Aug TwentyOne", "Aug Twenty"]
+    assert [order.customer_name for order in newest] == ["Nicosia Late", "Nicosia Early"]
 
     client.post("/admin/login", data={"password": "printmemaybe"})
     filtered = client.get("/admin/orders?from=2026-08-20&to=2026-08-20")
-    assert "Aug Twenty" in filtered.text
-    assert "Aug TwentyOne" not in filtered.text
+    assert "Nicosia Early" in filtered.text
+    assert "Nicosia Late" not in filtered.text
     assert "2026-08-20" in filtered.text
     oldest_page = client.get("/admin/orders?sort=oldest")
-    assert oldest_page.text.find("Aug Twenty") < oldest_page.text.find("Aug TwentyOne")
+    assert oldest_page.text.find("Nicosia Early") < oldest_page.text.find("Nicosia Late")
     newest_page = client.get("/admin/orders")
-    assert newest_page.text.find("Aug TwentyOne") < newest_page.text.find("Aug Twenty")
+    assert newest_page.text.find("Nicosia Late") < newest_page.text.find("Nicosia Early")
 
 
 def test_archive_completed_and_cancelled_orders() -> None:
