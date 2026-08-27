@@ -40,6 +40,7 @@ Work through these issues in order:
 - [Repository layout](#repository-layout)
 - [Local development](#local-development)
 - [Tests and CI](#tests-and-ci)
+- [CI/CD deployment](#cicd-deployment)
 - [Configuration](#configuration)
 - [Shop behaviour](#shop-behaviour)
 - [Shipping](#shipping)
@@ -66,16 +67,16 @@ Track progress in [Issues](https://github.com/panagiod/print-me-maybe/issues). S
 1. **Domain** — **done:** `print-me-maybe.com` ([#8](https://github.com/panagiod/print-me-maybe/issues/8))
 2. **Server** — [#7](https://github.com/panagiod/print-me-maybe/issues/7) Hetzner Cloud **CX23** — see [Buy a Hetzner CX23 server](#buy-a-hetzner-cx23-server) below.
 3. **DNS** — [#3](https://github.com/panagiod/print-me-maybe/issues/3) — see [Point DNS at the Hetzner server](#point-dns-at-the-hetzner-server) below.
-4. **Install** — [#5](https://github.com/panagiod/print-me-maybe/issues/5) SSH as root:
+4. **Install** — [#5](https://github.com/panagiod/print-me-maybe/issues/5) SSH as root (one-time bootstrap):
 
    ```bash
    git clone https://github.com/panagiod/print-me-maybe.git /opt/eshop
-   sudo bash /opt/eshop/deploy/install.sh
-   nano /etc/eshop.env   # SHOP_URL, Stripe, Resend
-   nano /etc/caddy/Caddyfile   # already set to print-me-maybe.com in repo
-   systemctl restart eshop
-   systemctl reload caddy
+   bash /opt/eshop/deploy/install.sh
    ```
+
+   Then set up [CI/CD](#cicd-deployment) so every push to `main` deploys automatically.
+
+   Manual update anytime: `bash /opt/eshop/deploy/deploy.sh`
 
    `install.sh` generates `SESSION_SECRET` and `ADMIN_PASSWORD` and prints the admin password once. Caddy gets HTTPS automatically after DNS points at the server.
 5. **Stripe** — [#6](https://github.com/panagiod/print-me-maybe/issues/6) [dashboard.stripe.com](https://dashboard.stripe.com) → activate payments, EUR, copy the **secret** key (`sk_live_…` or `sk_test_…` for a dry run) into `STRIPE_SECRET_KEY`. Checkout redirects to Stripe and only creates the order after `payment_status=paid`.
@@ -227,8 +228,9 @@ src/                 FastAPI app
 templates/           HTML (base, shop, cart, checkout, admin)
 static/              CSS and seed product images
 tests/               pytest
-deploy/              Hetzner systemd unit, Caddyfile, install.sh, env.example, backup.sh
+deploy/              Hetzner systemd unit, Caddyfile, install.sh, deploy.sh, env.example, backup.sh
 .github/workflows/ci.yml
+.github/workflows/deploy.yml
 ```
 
 ## Local development
@@ -255,6 +257,57 @@ python3 -m pytest tests/ -v
 GitHub Actions (`.github/workflows/ci.yml`) runs on every pull request and on push to `main`: install deps, pytest, then boot Uvicorn and `curl` `/health` and `/`.
 
 Shop tests cover pick-up (free), Cyprus delivery (€3.50), international delivery (€10), and studio product delete (including the block when a product has already been ordered).
+
+## CI/CD deployment
+
+After the [one-time bootstrap](#go-live-cheapest-stack) (`install.sh` on the server), every **push to `main`** that passes CI automatically deploys to Hetzner via `.github/workflows/deploy.yml`.
+
+**Flow:** push to `main` → CI tests pass → GitHub SSHs into the server → `deploy/deploy.sh` pulls latest code → restarts `eshop` and reloads Caddy.
+
+### One-time server bootstrap
+
+On the Hetzner server as `root` (only needed once):
+
+```bash
+git clone https://github.com/panagiod/print-me-maybe.git /opt/eshop
+bash /opt/eshop/deploy/install.sh
+```
+
+Save the printed `ADMIN_PASSWORD`. Edit `/etc/eshop.env` for Stripe/Resend when ready.
+
+### GitHub deploy key (repo secrets)
+
+Create a dedicated SSH key for GitHub Actions (on your laptop — **not** on the server):
+
+```bash
+ssh-keygen -t ed25519 -C "github-deploy-print-me-maybe" -f ~/.ssh/github-deploy-print-me-maybe -N ""
+cat ~/.ssh/github-deploy-print-me-maybe.pub
+```
+
+On the **server**, add the public key so GitHub can SSH in:
+
+```bash
+mkdir -p ~/.ssh && chmod 700 ~/.ssh
+echo 'PASTE_THE_.pub_LINE_HERE' >> ~/.ssh/authorized_keys
+chmod 600 ~/.ssh/authorized_keys
+```
+
+In GitHub: **Settings → Secrets and variables → Actions → New repository secret**
+
+| Secret | Value |
+|--------|--------|
+| `SSH_HOST` | Hetzner IPv4 or `print-me-maybe.com` |
+| `SSH_USER` | `root` |
+| `SSH_PRIVATE_KEY` | entire contents of `~/.ssh/github-deploy-print-me-maybe` (private key) |
+
+Optional: `SSH_PORT` if SSH is not on port 22.
+
+### Manual deploy
+
+- **From the server:** `bash /opt/eshop/deploy/deploy.sh`
+- **From GitHub:** Actions → **Deploy** → **Run workflow**
+
+`/etc/eshop.env` (secrets, Stripe, Resend) is **not** overwritten by deploy — only application code and service configs update.
 
 ## Configuration
 

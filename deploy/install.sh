@@ -30,6 +30,8 @@ else
   git -C "$APP_DIR" pull --ff-only
 fi
 
+git config --system --add safe.directory "$APP_DIR"
+
 python3 -m venv "$APP_DIR/.venv"
 "$APP_DIR/.venv/bin/pip" install --upgrade pip
 "$APP_DIR/.venv/bin/pip" install -r "$APP_DIR/requirements.txt"
@@ -49,7 +51,7 @@ if [ ! -f /etc/caddy/Caddyfile.eshop.bak ]; then
   cp /etc/caddy/Caddyfile /etc/caddy/Caddyfile.eshop.bak 2>/dev/null || true
 fi
 cp "$APP_DIR/deploy/Caddyfile" /etc/caddy/Caddyfile
-chmod 750 "$APP_DIR/deploy/backup.sh" || true
+chmod 750 "$APP_DIR/deploy/backup.sh" "$APP_DIR/deploy/deploy.sh" || true
 
 chown -R eshop:eshop "$APP_DIR" "$DATA_DIR"
 chown root:eshop /etc/eshop.env
