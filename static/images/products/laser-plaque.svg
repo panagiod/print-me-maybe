@@ -1,7 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="800" height="800" viewBox="0 0 800 800" role="img" aria-label="Print Me Maybe name plaque">
-  <rect width="800" height="800" fill="#ead9c2"/>
-  <rect x="140" y="220" width="520" height="220" rx="12" fill="#6b4226" stroke="#3a2412" stroke-width="4"/>
-  <text x="400" y="350" text-anchor="middle" font-family="Georgia, serif" font-size="40" fill="#f4e6d4">Your Name</text>
-  <text x="400" y="540" text-anchor="middle" font-family="Georgia, serif" font-size="36" fill="#3a2412">Print Me Maybe</text>
-  <text x="400" y="590" text-anchor="middle" font-family="system-ui, sans-serif" font-size="22" fill="#3a2412">Custom door plaque</text>
-</svg>

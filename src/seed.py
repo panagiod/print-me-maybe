@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from src.db import get_connection, sync_product_image_gallery
+from src.uploads import promote_static_listing_photos
 
 # 3D listings use captions and euro prices from public @print.me.maybe posts
 # when the post named a price. Items Instagram did not price use starting
@@ -11,6 +12,10 @@ from src.db import get_connection, sync_product_image_gallery
 # - Bear keychain: ~€5–€11 (3D printed personalized keychains)
 # Household décor SKUs (coasters, boards, plaques, signs) use starting
 # prices in line with similar EU handmade listings.
+#
+# CATALOG is empty-database bootstrap only (and tests). Boot never overwrites
+# existing rows. image_url paths are keys used to import files into DATA_DIR;
+# after first boot the live URLs are /media/products/... in SQLite.
 CATALOG = [
     {
         "slug": "magical-world-bookshelf",
@@ -179,47 +184,9 @@ for _item in CATALOG:
     _item["code"] = SEED_CODES[_item["slug"]]
 
 
-def _has_laser_copy(text: str) -> bool:
-    lowered = (text or "").lower()
-    return any(
-        marker in lowered
-        for marker in (
-            "lasercraft",
-            "laser engraving",
-            "laser-cut",
-            "laser-engraved",
-            "laser engraved",
-            "engraved",
-        )
-    )
-
-
-def remap_product_genres() -> None:
-    """Move existing SKUs onto the fandom/household genres and drop leftover laser copy."""
+def remap_legacy_categories() -> None:
+    """Rename leftover 3D/laser genre labels. Studio edits on known slugs are left as-is."""
     with get_connection() as conn:
-        for item in CATALOG:
-            conn.execute(
-                "UPDATE products SET category = ? WHERE slug = ?",
-                (item["category"], item["slug"]),
-            )
-            row = conn.execute(
-                "SELECT name, description FROM products WHERE slug = ?",
-                (item["slug"],),
-            ).fetchone()
-            if not row:
-                continue
-            name_text = (row["name"] or "").lower()
-            desc_text = (row["description"] or "").lower()
-            if _has_laser_copy(name_text):
-                conn.execute(
-                    "UPDATE products SET name = ? WHERE slug = ?",
-                    (item["name"], item["slug"]),
-                )
-            if _has_laser_copy(desc_text):
-                conn.execute(
-                    "UPDATE products SET description = ? WHERE slug = ?",
-                    (item["description"], item["slug"]),
-                )
         conn.execute(
             "UPDATE products SET category = 'Household' WHERE category IN ('3D Prints', 'Laser Engraving')"
         )
@@ -228,9 +195,9 @@ def remap_product_genres() -> None:
 def seed_products() -> None:
     """Insert missing catalog SKUs. Existing rows (including admin edits) are left as-is.
 
-    Stock and products added from studio admin are never overwritten by seed.
-    Empty product codes on known slugs are filled once. Categories are remapped
-    to the current genres on every boot so production listings match the shop chips.
+    Stock, names, descriptions, genres, prices, and products added from studio are never
+    overwritten. Empty product codes on known slugs are filled once. Listing photos still
+    pointed at /static/images/products/ are copied into DATA_DIR and rewritten to /media.
     """
     with get_connection() as conn:
         conn.executemany(
@@ -248,5 +215,6 @@ def seed_products() -> None:
             """,
             CATALOG,
         )
-    remap_product_genres()
+    remap_legacy_categories()
     sync_product_image_gallery()
+    promote_static_listing_photos()
