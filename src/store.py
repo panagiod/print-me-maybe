@@ -24,7 +24,7 @@ from src.models import (
     studio_day_utc_bounds,
 )
 
-CATEGORIES = ("3D Prints", "Laser Engraving")
+CATEGORIES = ("Harry Potter", "Lord of the Rings", "Household", "Pokemon")
 PLACEHOLDER_IMAGE = "/static/images/products/placeholder.svg"
 
 
@@ -77,16 +77,8 @@ def list_products(category: str | None = None) -> list[Product]:
 
 
 def list_categories() -> list[str]:
-    """Distinct product categories that currently have listed, in-stock items."""
-    with get_connection() as conn:
-        rows = conn.execute(
-            """
-            SELECT DISTINCT category FROM products
-            WHERE stock > 0 AND COALESCE(hidden, 0) = 0
-            ORDER BY category
-            """
-        ).fetchall()
-    return [row["category"] for row in rows]
+    """Genre chips for the shop and studio. Always the full set, even if a genre is empty."""
+    return list(CATEGORIES)
 
 
 def get_product(product_id: int) -> Product | None:
@@ -301,7 +293,9 @@ def create_product(
         raise ValueError("Description is required")
     cleaned_category = category.strip()
     if not cleaned_category:
-        raise ValueError("Category is required")
+        raise ValueError("Genre is required")
+    if cleaned_category not in CATEGORIES:
+        raise ValueError("Choose a genre")
     if price_cents <= 0:
         raise ValueError("Price must be greater than zero")
 
@@ -364,7 +358,9 @@ def update_product(
         raise ValueError("Description is required")
     cleaned_category = category.strip()
     if not cleaned_category:
-        raise ValueError("Category is required")
+        raise ValueError("Genre is required")
+    if cleaned_category not in CATEGORIES:
+        raise ValueError("Choose a genre")
     if price_cents <= 0:
         raise ValueError("Price must be greater than zero")
     photo = existing.image_url

@@ -1,16 +1,16 @@
 {% extends "base.html" %}
 
-{% block title %}{{ shop_name }} — 3D prints & laser engraving{% endblock %}
+{% block title %}{{ shop_name }} — 3D prints made to order{% endblock %}
 
 {% block content %}
 <section class="hero">
-  <p class="hero-eyebrow">Print Me Maybe · LaserCraft 27</p>
-  <h1 class="hero-title">3D prints and laser<br>engravings, made to order.</h1>
-  <p class="hero-subtitle">Personalized 3D creations from @print.me.maybe — baby gifts, keepsakes, and home décor. Custom laser engraving from @lasercraft.27. Made in Cyprus. Free pick up; €3.50 delivery in Cyprus; €10 delivery in Greece.</p>
+  <p class="hero-eyebrow">Print Me Maybe</p>
+  <h1 class="hero-title">Personalized 3D prints,<br>made to order.</h1>
+  <p class="hero-subtitle">Baby gifts, keepsakes, fandom décor, and household pieces from @print.me.maybe — Harry Potter, Lord of the Rings, household, and Pokémon. Made in Cyprus. Free pick up; €3.50 delivery in Cyprus; €10 delivery in Greece.</p>
 </section>
 
 {% if categories %}
-<nav class="category-bar" aria-label="Categories">
+<nav class="category-bar" aria-label="Genres">
   <a href="/" class="category-chip {% if not active_category %}active{% endif %}">All</a>
   {% for cat in categories %}
   <a href="/?category={{ cat | urlencode }}" class="category-chip {% if active_category == cat %}active{% endif %}">{{ cat }}</a>
@@ -50,7 +50,7 @@
     </div>
   </article>
   {% else %}
-  <p class="empty-state">No products in this category right now.</p>
+  <p class="empty-state">No products in this genre right now.</p>
   {% endfor %}
 </section>
 {% if ns.multi_photos %}

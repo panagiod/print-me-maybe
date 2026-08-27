@@ -40,8 +40,8 @@
   <a href="/admin/stock?visibility=hidden{% if search_q %}&q={{ search_q }}{% endif %}" class="category-chip {% if active_visibility == 'hidden' %}active{% endif %}">Hidden ({{ catalog_counts.get('hidden', 0) }})</a>
 </nav>
 
-<nav class="category-bar" aria-label="Category">
-  <a href="/admin/stock{% if active_visibility %}?visibility={{ active_visibility }}{% endif %}" class="category-chip {% if not active_category %}active{% endif %}">All lines</a>
+<nav class="category-bar" aria-label="Genre">
+  <a href="/admin/stock{% if active_visibility %}?visibility={{ active_visibility }}{% endif %}" class="category-chip {% if not active_category %}active{% endif %}">All genres</a>
   {% for cat in categories %}
   <a href="/admin/stock?category={{ cat | urlencode }}{% if active_visibility %}&visibility={{ active_visibility }}{% endif %}{% if search_q %}&q={{ search_q }}{% endif %}" class="category-chip {% if active_category == cat %}active{% endif %}">{{ cat }}</a>
   {% endfor %}

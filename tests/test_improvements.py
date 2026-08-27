@@ -89,7 +89,9 @@ def test_alembic_upgrades_legacy_sqlite(tmp_path, monkeypatch) -> None:
     assert "product_images" in tables
     assert "alembic_version" in tables
     version = conn.execute("SELECT version_num FROM alembic_version").fetchone()[0]
-    assert version == "005_product_code"
+    assert version == "006_product_genres"
+    leftover = conn.execute("SELECT category FROM products WHERE slug = 'legacy-mug'").fetchone()
+    assert leftover[0] == "Household"
     assert "archived" in order_cols
     assert "code" in product_cols
     assert "product_code" in item_cols
@@ -111,7 +113,7 @@ def test_admin_upload_uses_thumb_on_catalog(tmp_path, monkeypatch) -> None:
             "name": "Large Photo Print",
             "description": "Resized upload.",
             "price": "9.00",
-            "category": "3D Prints",
+            "category": "Household",
             "stock": "2",
         },
         files={"images": ("huge.jpg", payload, "image/jpeg")},

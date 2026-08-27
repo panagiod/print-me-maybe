@@ -26,7 +26,7 @@
       <input type="text" name="price" inputmode="decimal" required placeholder="15.00" value="{{ form_price or '' }}">
     </label>
     <label>
-      Category
+      Genre
       <select name="category" required>
         {% for cat in categories %}
         <option value="{{ cat }}" {% if form_category == cat %}selected{% endif %}>{{ cat }}</option>
@@ -35,9 +35,9 @@
     </label>
     <label>
       Product code
-      <input type="text" name="code" value="{{ form_code or '' }}" maxlength="16" placeholder="3D-001" autocomplete="off">
+      <input type="text" name="code" value="{{ form_code or '' }}" maxlength="16" placeholder="HH-001" autocomplete="off">
     </label>
-    <p class="field-hint">Leave blank to assign the next code (3D-001, LC-001). Shown on stock, packing slips, and studio order emails.</p>
+    <p class="field-hint">Leave blank to assign the next code (HP-001, LOTR-001, HH-001, PK-001). Shown on stock, packing slips, and studio order emails.</p>
     <label>
       Starting stock
       <input type="number" name="stock" min="0" value="{{ form_stock | default(1) }}">

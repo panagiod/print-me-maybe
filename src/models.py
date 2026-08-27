@@ -69,6 +69,10 @@ def shipping_method_label(shipping_method: str, delivery_country: str | None = N
 
 
 PRODUCT_CODE_PREFIXES = {
+    "Harry Potter": "HP",
+    "Lord of the Rings": "LOTR",
+    "Household": "HH",
+    "Pokemon": "PK",
     "3D Prints": "3D",
     "Laser Engraving": "LC",
 }
