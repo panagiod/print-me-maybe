@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from src.db import get_connection, init_schema
+from src.db import get_connection, init_schema, product_images_dir
 from src.main import app
 from src.models import (
     CYPRUS_SHIPPING_CENTS,
@@ -17,6 +17,7 @@ from src.models import (
 )
 from src.seed import seed_products
 from src.store import get_order, list_all_products
+from src.uploads import image_thumb_url
 
 
 @pytest.fixture(autouse=True)
@@ -52,7 +53,10 @@ def test_health_and_catalog() -> None:
     assert "€15.00" in home.text
     assert "Teddy Bear Keychain" in home.text
     assert "€5.00" in home.text
-    assert "/static/images/products/glasses-case.jpg" in home.text
+    glasses = next(p for p in list_all_products() if p.slug == "glasses-case")
+    assert glasses.image_url.startswith("/media/products/")
+    assert image_thumb_url(glasses.image_url) in home.text
+    assert "/static/images/products/glasses-case.jpg" not in home.text
     assert "Harry Potter" in home.text
     assert "Lord of the Rings" in home.text
     assert "Household" in home.text
@@ -70,6 +74,95 @@ def test_health_and_catalog() -> None:
     assert "Household" in categories
     assert "3D Prints" not in categories
     assert "Laser Engraving" not in categories
+
+
+def test_seed_does_not_overwrite_studio_listing_copy() -> None:
+    init_schema()
+    seed_products()
+    with get_connection() as conn:
+        conn.execute(
+            """
+            UPDATE products
+            SET category = 'Toys', name = 'Studio glasses', description = 'Edited in studio'
+            WHERE slug = 'glasses-case'
+            """
+        )
+    seed_products()
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT category, name, description, image_url FROM products WHERE slug = 'glasses-case'"
+        ).fetchone()
+    assert row["category"] == "Toys"
+    assert row["name"] == "Studio glasses"
+    assert row["description"] == "Edited in studio"
+    assert row["image_url"].startswith("/media/products/")
+
+
+def test_seed_renames_leftover_genre_labels_only() -> None:
+    init_schema()
+    seed_products()
+    with get_connection() as conn:
+        conn.execute("UPDATE products SET category = '3D Prints' WHERE slug = 'glasses-case'")
+    seed_products()
+    with get_connection() as conn:
+        row = conn.execute("SELECT category FROM products WHERE slug = 'glasses-case'").fetchone()
+    assert row["category"] == "Household"
+
+
+def test_seed_moves_listing_photos_into_data_dir() -> None:
+    init_schema()
+    seed_products()
+    products = list_all_products()
+    glasses = next(p for p in products if p.slug == "glasses-case")
+    egg = next(p for p in products if p.slug == "dragon-egg")
+    egg_set = next(p for p in products if p.slug == "dragon-egg-set")
+    coasters = next(p for p in products if p.slug == "oak-coaster-set")
+
+    assert glasses.image_url.startswith("/media/products/")
+    assert glasses.gallery[0].url == glasses.image_url
+    media_name = glasses.image_url.rsplit("/", 1)[-1]
+    assert (product_images_dir() / media_name).is_file()
+    assert coasters.image_url.startswith("/media/products/")
+    assert coasters.image_url.endswith(".svg")
+
+    # Shared git file becomes a separate DATA_DIR copy per SKU.
+    assert egg.image_url.startswith("/media/products/")
+    assert egg_set.image_url.startswith("/media/products/")
+    assert egg.image_url != egg_set.image_url
+
+    first_names = sorted(path.name for path in product_images_dir().iterdir() if path.is_file())
+    first_url = glasses.image_url
+    seed_products()
+    again = next(p for p in list_all_products() if p.slug == "glasses-case")
+    assert again.image_url == first_url
+    second_names = sorted(path.name for path in product_images_dir().iterdir() if path.is_file())
+    assert first_names == second_names
+
+    with get_connection() as conn:
+        leftover = conn.execute(
+            """
+            SELECT image_url FROM products
+            WHERE image_url LIKE '/static/images/products/%'
+              AND image_url NOT LIKE '%/placeholder.svg'
+            """
+        ).fetchall()
+        leftover_gallery = conn.execute(
+            """
+            SELECT url FROM product_images
+            WHERE url LIKE '/static/images/products/%'
+              AND url NOT LIKE '%/placeholder.svg'
+            """
+        ).fetchall()
+    assert leftover == []
+    assert leftover_gallery == []
+
+    client = TestClient(app)
+    photo = client.get(glasses.image_url)
+    assert photo.status_code == 200
+    assert photo.headers["content-type"].startswith("image/jpeg")
+    svg = client.get(coasters.image_url)
+    assert svg.status_code == 200
+    assert svg.headers["content-type"].startswith("image/svg")
 
 
 def test_category_filter() -> None:

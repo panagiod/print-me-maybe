@@ -23,6 +23,12 @@ def _jpeg_bytes(width: int, height: int, quality: int = 95) -> bytes:
     return buf.getvalue()
 
 
+def test_repo_does_not_ship_listing_photos() -> None:
+    folder = Path(__file__).resolve().parent.parent / "static" / "images" / "products"
+    names = sorted(path.name for path in folder.iterdir() if path.is_file())
+    assert names == ["placeholder.svg"]
+
+
 def test_image_thumb_url_for_uploads_and_static() -> None:
     assert image_thumb_url("/media/products/vase-ab12.jpg") == "/media/products/vase-ab12-thumb.jpg"
     assert image_thumb_url("/media/products/vase-ab12-thumb.jpg") == "/media/products/vase-ab12-thumb.jpg"

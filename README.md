@@ -231,8 +231,8 @@ src/                 FastAPI app
   db.py              SQLite helpers and DATA_DIR
   migrate.py         Alembic upgrade entry point
   models.py          Product/Order types, EUR formatting, shipping rules
-  seed.py            Catalog copied from Instagram listings
-  uploads.py         Admin product photos (resize, thumbs, unique filenames)
+  seed.py            Empty-DB catalog bootstrap (does not overwrite live listings)
+  uploads.py         Product photos: studio uploads, thumbs, import seed files into DATA_DIR
   pdf.py             Packing-slip PDF via WeasyPrint
   payments.py        Stripe Checkout, webhooks, refunds
   fulfill.py         Paid Stripe session → order (idempotent)
@@ -240,7 +240,7 @@ src/                 FastAPI app
   ratelimit.py       Per-IP limits
   security.py        Secrets, HTTPS cookies, CSP/HSTS
 templates/           HTML (base, shop, cart, checkout, admin)
-static/              CSS, vendored HTMX, and seed product images
+static/              CSS, vendored HTMX, and placeholder.svg
 alembic/             SQLite migrations
 tests/               pytest
 deploy/              Hetzner systemd unit, Caddyfile, install.sh, deploy.sh, env.example, backup.sh
@@ -261,7 +261,7 @@ uvicorn src.main:app --reload --port 8080
 
 Open [http://localhost:8080](http://localhost:8080). Studio: [http://localhost:8080/admin/login](http://localhost:8080/admin/login) — password `printmemaybe` unless you set `ADMIN_PASSWORD`.
 
-SQLite and uploaded photos go to `DATA_DIR` (default `/tmp/eshop-data`).
+SQLite, uploaded photos, and imported listing photos go to `DATA_DIR` (default `/tmp/eshop-data`).
 
 ## Tests and CI
 
@@ -277,7 +277,7 @@ Shop tests cover pick-up (free), Cyprus delivery (€3.50, street/city/postcode 
 
 After the [one-time bootstrap](#go-live-cheapest-stack) (`install.sh` on the server), every **push to `main`** that passes CI automatically deploys to Hetzner via `.github/workflows/deploy.yml`.
 
-**Flow:** push to `main` → CI tests pass → GitHub SSHs into the server → `deploy/deploy.sh` pulls latest code → restarts `eshop` and reloads Caddy.
+**Flow:** push to `main` → CI tests pass → GitHub SSHs into the server → copies any leftover git listing photos into `/var/lib/eshop/seed-product-images` → `deploy/deploy.sh` pulls latest code → restarts `eshop` and reloads Caddy.
 
 ### One-time server bootstrap
 
@@ -337,7 +337,7 @@ Set these in `/etc/eshop.env` on the server (`deploy/env.example`). Never commit
 | `SHOP_NAME` | `Print Me Maybe` | Branding |
 | `SHOP_URL` | your `https://` domain | Links in emails |
 | `SHOP_TIMEZONE` | `Europe/Nicosia` | Display timezone for order timestamps |
-| `DATA_DIR` | `/tmp/eshop-data` locally; `/var/lib/eshop` in production | SQLite + uploaded photos |
+| `DATA_DIR` | `/tmp/eshop-data` locally; `/var/lib/eshop` in production | SQLite + listing photos |
 | `NOTIFY_EMAIL` | `dimitrioupanagiotis@outlook.com` | Inbox for order and attack alerts |
 | `RESEND_API_KEY` | empty (mail skipped) | Resend API key (`re_…`) |
 | `RESEND_FROM` | `Print Me Maybe <beth.t@example.com>` | Must be an address on a **verified** Resend domain |
@@ -360,7 +360,7 @@ Two dashboards that are easy to mix up:
 
 ## Shop behaviour
 
-**Catalog.** Seed products live in `src/seed.py` (names, **product codes**, euro prices, photos from public Instagram where a price was named). On boot, missing slugs are inserted and listings are remapped onto the current genres (**Harry Potter**, **Lord of the Rings**, **Household**, **Pokemon**, **Toys**). Admin price, photo, stock, and code survive deploy/restart. Products added in studio are never overwritten. Each product can have **several photos**; `image_url` is the cover (first gallery image) used on cards and in the cart. Codes (`3D-GLASSES`, `LC-BOARD`, or the next `HP-001` / `LOTR-001` / `HH-001` / `PK-001` / `TOY-001`) show on Stock, packing slips, and studio order emails, and are snapshotted onto each order line.
+**Catalog.** Live listing names, descriptions, genres, prices, stock, and photos live in SQLite (`DATA_DIR/eshop.db`) and `DATA_DIR/product-images` — not in GitHub. `src/seed.py` only inserts **missing** slugs on an empty database (and fills empty product codes once). Boot never overwrites studio edits. Leftover genre labels `3D Prints` / `Laser Engraving` are renamed to Household. Listing photos that still point at `/static/images/products/` are copied into `DATA_DIR` and rewritten to `/media/products/...`. The git tree keeps only `placeholder.svg` as UI chrome. Each product can have **several photos**; `image_url` is the cover (first gallery image) used on cards and in the cart. Codes (`3D-GLASSES`, `LC-BOARD`, or the next `HP-001` / `LOTR-001` / `HH-001` / `PK-001` / `TOY-001`) show on Stock, packing slips, and studio order emails, and are snapshotted onto each order line.
 
 **Cart.** Stored in the signed session cookie (7 days). Add/update quantity is capped at remaining stock. Zero stock hides a product from the shop and the product page shows **Sold out** (no Add to cart). **Hidden** products (studio toggle) are omitted from the shop and product URLs 404. The cart shows the product subtotal only; shipping is not applied until checkout.
 
@@ -457,7 +457,7 @@ Studio **Stock** is a photo grid. Search by name, filter by genre (Harry Potter 
 
 **Remove a product.** Each card has **Remove** (`POST /admin/products/{id}/delete`) and asks for confirm. Deletion is a hard delete. It is **blocked** if that product appears on any past order. In that case the studio sees that it cannot be deleted, plus **Hide from shop**. Setting stock to 0 still marks sold out without deleting history. Zero-stock and hidden cards are highlighted; sold-out and hidden sort after listed in-stock items.
 
-Uploaded photos are served from `/media/products/...` and stored under `DATA_DIR/product-images`.
+Uploaded photos and imported seed listing photos are served from `/media/products/...` and stored under `DATA_DIR/product-images`.
 
 **Packing slip PDF.** From an order, **Print packing slip** still opens the HTML view. **Download PDF** saves `order-{id}-packing-slip.pdf` (same fields: customer, phone, address, method, tracking, notes, lines, totals). The VPS needs cairo/pango/fonts (`install.sh` and each `deploy.sh` install them).
 
@@ -563,13 +563,13 @@ Rate limits (in-memory, per instance, by IP):
 
 ## Backups
 
-SQLite lives at `/var/lib/eshop/eshop.db`. `install.sh` and `deploy.sh` install a root cron job that runs at **03:15 UTC**:
+SQLite lives at `/var/lib/eshop/eshop.db`. Listing photos live under `/var/lib/eshop/product-images`. `install.sh` and `deploy.sh` install a root cron job that runs at **03:15 UTC**:
 
 ```bash
 15 3 * * * /opt/eshop/deploy/backup.sh >> /var/lib/eshop/backups/cron.log 2>&1
 ```
 
-Copies older than 14 days are deleted. Copy a backup off the server occasionally (`scp`) or enable a Hetzner snapshot (extra cost). Reboot the VPS after a test order and confirm studio still shows it.
+Each run writes `eshop-<stamp>.db` and `product-images-<stamp>.tar.gz`. Copies older than 14 days are deleted. Copy a backup off the server occasionally (`scp`) or enable a Hetzner snapshot (extra cost). Reboot the VPS after a test order and confirm studio still shows it.
 
 ## License
 

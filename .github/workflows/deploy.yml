@@ -27,6 +27,13 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
             git config --system --add safe.directory /opt/eshop
+            # The deploy.sh on disk is still the previous revision until git reset.
+            # Copy listing photos into DATA_DIR first so this pull can delete them from git.
+            mkdir -p /var/lib/eshop/seed-product-images
+            if [ -d /opt/eshop/static/images/products ]; then
+              find /opt/eshop/static/images/products -maxdepth 1 -type f ! -name 'placeholder.svg' \
+                -exec cp -n {} /var/lib/eshop/seed-product-images/ \; || true
+            fi
             export DEBIAN_FRONTEND=noninteractive
             apt-get update -qq
             apt-get install -y libpango-1.0-0 libcairo2 libgdk-pixbuf-2.0-0 libffi-dev shared-mime-info fonts-dejavu-core

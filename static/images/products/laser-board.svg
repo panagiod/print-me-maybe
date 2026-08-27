@@ -1,7 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="800" height="800" viewBox="0 0 800 800" role="img" aria-label="Print Me Maybe cutting board">
-  <rect width="800" height="800" fill="#c4a574"/>
-  <rect x="170" y="140" width="460" height="380" rx="28" fill="#a67c52" stroke="#4a2e16" stroke-width="5"/>
-  <circle cx="400" cy="240" r="36" fill="none" stroke="#4a2e16" stroke-width="3"/>
-  <text x="400" y="600" text-anchor="middle" font-family="Georgia, serif" font-size="36" fill="#3a2412">Print Me Maybe</text>
-  <text x="400" y="650" text-anchor="middle" font-family="system-ui, sans-serif" font-size="22" fill="#3a2412">Personalized cutting board</text>
-</svg>

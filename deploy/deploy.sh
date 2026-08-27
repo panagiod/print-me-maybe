@@ -13,6 +13,16 @@ fi
 git config --system --add safe.directory "$APP_DIR" 2>/dev/null || true
 
 cd "$APP_DIR"
+
+# Copy listing photos out of the git tree before reset — this deploy removes them from GitHub.
+DATA_DIR="${DATA_DIR:-/var/lib/eshop}"
+SEED_PHOTOS="$DATA_DIR/seed-product-images"
+mkdir -p "$SEED_PHOTOS"
+if [ -d "$APP_DIR/static/images/products" ]; then
+  find "$APP_DIR/static/images/products" -maxdepth 1 -type f ! -name 'placeholder.svg' \
+    -exec cp -n {} "$SEED_PHOTOS/" \; || true
+fi
+
 sudo -u eshop git -C "$APP_DIR" fetch origin main
 sudo -u eshop git -C "$APP_DIR" reset --hard origin/main
 
