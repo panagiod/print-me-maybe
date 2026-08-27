@@ -83,37 +83,23 @@
 
     <fieldset>
       <legend>Payment</legend>
-      <div class="shipping-options">
-        <label class="shipping-option">
-          <input type="radio" name="payment_method" value="card" required
-            {% if form_payment_method|default('card') != 'cash' %}checked{% endif %}>
-          <span>
-            <strong>Card</strong>
-            <span class="option-detail">Pay now with card</span>
-          </span>
-        </label>
-        <label class="shipping-option cash-pickup-option" id="pay-cash-option">
-          <input type="radio" name="payment_method" value="cash"
-            {% if form_payment_method == 'cash' %}checked{% endif %}>
-          <span>
-            <strong>Cash at pick up</strong>
-            <span class="option-detail">Pay with cash at pick up</span>
-          </span>
-        </label>
-      </div>
       <p class="field-hint cash-pickup-option">Cash is only for studio pick up. Delivery is card only.</p>
+      <div class="checkout-pay-actions">
+        <button type="submit" name="payment_method" value="card" class="btn btn-primary btn-lg" id="pay-card-btn">
+          {% if payments_on %}Pay with card{% else %}Place order{% endif %}
+        </button>
+        <button type="submit" name="payment_method" value="cash" class="btn btn-ghost btn-lg cash-pickup-option" id="pay-cash-btn">
+          Pay with cash at pick up
+        </button>
+      </div>
+      <p class="checkout-note" id="checkout-pay-note">
+        {% if payments_on %}
+        Card payments go through Stripe (EEA cards typically 1.5% + €0.25, paid by the shop). Cash is due when you collect.
+        {% else %}
+        Card payments are off until STRIPE_SECRET_KEY is set on the server. You can still place a pick-up order and pay cash at the studio.
+        {% endif %}
+      </p>
     </fieldset>
-
-    <p class="checkout-note" id="checkout-pay-note">
-      {% if payments_on %}
-      Card payments go through Stripe (EEA cards typically 1.5% + €0.25, paid by the shop). Cash is due when you collect.
-      {% else %}
-      Card payments are off until STRIPE_SECRET_KEY is set on the server. You can still place a pick-up order and pay cash at the studio.
-      {% endif %}
-    </p>
-    <button type="submit" class="btn btn-primary btn-lg" id="checkout-submit"
-      data-label-card="{% if payments_on %}Pay with card{% else %}Place order{% endif %}"
-      data-label-cash="Place order — pay cash at pick up">{% if payments_on %}Pay with card{% else %}Place order{% endif %}</button>
   </form>
 
   <aside class="order-summary">

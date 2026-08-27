@@ -634,7 +634,15 @@ img {
   color: var(--muted);
 }
 
-.shipping-pending {
+.checkout-pay-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.checkout-pay-actions .btn {
+  width: 100%;
+}
   color: var(--muted);
   font-size: 0.9rem;
 }

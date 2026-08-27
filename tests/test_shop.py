@@ -573,8 +573,10 @@ def test_delivery_checkout_requires_phone() -> None:
     assert "International (" in page.text
     assert "Outside Cyprus" not in page.text
     assert "Pay with cash at pick up" in page.text
-    assert "data-label-cash" in page.text
-    assert ">Card<" in page.text or "<strong>Card</strong>" in page.text
+    assert 'id="pay-cash-btn"' in page.text
+    assert 'id="pay-card-btn"' in page.text
+    assert 'value="cash"' in page.text
+    assert "Place order" in page.text
     blocked = client.post(
         "/checkout",
         data={

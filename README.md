@@ -364,7 +364,7 @@ Two dashboards that are easy to mix up:
 
 **Cart.** Stored in the signed session cookie (7 days). Add/update quantity is capped at remaining stock. Zero stock hides a product from the shop and the product page shows **Sold out** (no Add to cart). **Hidden** products (studio toggle) are omitted from the shop and product URLs 404. The cart shows the product subtotal only; shipping is not applied until checkout.
 
-**Checkout.** GET `/checkout` collects name, email, optional phone, optional order notes (colour, name, files), a delivery choice (pick up vs ship), and **payment** (card, or cash if pick up). Delivery requires a destination (Cyprus or international), an address, and a phone number. POST `/checkout` then:
+**Checkout.** GET `/checkout` collects name, email, optional phone, optional order notes (colour, name, files), and a delivery choice (pick up vs ship). Payment is two submit buttons: **Pay with card** and **Pay with cash at pick up** (cash is hidden for delivery). Delivery requires a destination (Cyprus or international), an address, and a phone number. POST `/checkout` then:
 
 1. Recalculates shipping from the chosen method and destination (see [Shipping](#shipping)).
 2. **Cash at pick up:** places an Unpaid order immediately (`payment_method=cash`), skips Stripe, emails the customer to bring cash, and empties the cart.
