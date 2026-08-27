@@ -28,6 +28,7 @@ def test_checkout_without_stripe_still_places_order(tmp_path, monkeypatch) -> No
     client.post("/cart/add", data={"product_id": glasses["id"], "quantity": 1})
     page = client.get("/checkout")
     assert "Place order" in page.text
+    assert "/static/js/checkout.js" in page.text
     result = client.post(
         "/checkout",
         data={

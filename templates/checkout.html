@@ -10,7 +10,15 @@
 {% endif %}
 
 <div class="checkout-layout">
-  <form action="/checkout" method="post" class="checkout-form" id="checkout-form">
+  <form
+    action="/checkout"
+    method="post"
+    class="checkout-form"
+    id="checkout-form"
+    data-subtotal-cents="{{ subtotal_cents }}"
+    data-cyprus-shipping-cents="{{ cyprus_shipping_cents }}"
+    data-international-shipping-cents="{{ international_shipping_cents }}"
+  >
     <fieldset>
       <legend>Your details</legend>
       <label>
@@ -39,7 +47,7 @@
       </div>
     </fieldset>
 
-    <fieldset id="delivery-fields" class="{% if form_shipping_method|default('pickup') != 'delivery' %}is-hidden{% endif %}">
+    <fieldset id="delivery-fields" class="delivery-fields">
       <legend>Delivery address</legend>
       <label>
         Destination
@@ -100,52 +108,5 @@
     </dl>
   </aside>
 </div>
-
-<script>
-(function () {
-  const form = document.getElementById("checkout-form");
-  const deliveryFields = document.getElementById("delivery-fields");
-  const deliveryCountry = document.getElementById("delivery-country");
-  const shippingAddress = document.getElementById("shipping-address");
-  const shippingDisplay = document.getElementById("shipping-display");
-  const totalDisplay = document.getElementById("total-display");
-  const subtotalCents = {{ subtotal_cents }};
-  const cyprusCents = {{ cyprus_shipping_cents }};
-  const internationalCents = {{ international_shipping_cents }};
-
-  function selectedMethod() {
-    const checked = form.querySelector('input[name="shipping_method"]:checked');
-    return checked ? checked.value : "pickup";
-  }
-
-  function shippingCents() {
-    if (selectedMethod() === "pickup") return 0;
-    return deliveryCountry.value === "other" ? internationalCents : cyprusCents;
-  }
-
-  function formatMoney(cents) {
-    return "€" + (cents / 100).toFixed(2);
-  }
-
-  function updateTotals() {
-    const method = selectedMethod();
-    const isDelivery = method === "delivery";
-    deliveryFields.classList.toggle("is-hidden", !isDelivery);
-    shippingAddress.required = isDelivery;
-    const ship = shippingCents();
-    if (ship === 0) {
-      shippingDisplay.innerHTML = '<span class="free-badge">Free</span>';
-    } else {
-      shippingDisplay.textContent = formatMoney(ship);
-    }
-    totalDisplay.innerHTML = "<strong>" + formatMoney(subtotalCents + ship) + "</strong>";
-  }
-
-  form.querySelectorAll('input[name="shipping_method"]').forEach((el) => {
-    el.addEventListener("change", updateTotals);
-  });
-  deliveryCountry.addEventListener("change", updateTotals);
-  updateTotals();
-})();
-</script>
+<script src="/static/js/checkout.js" defer></script>
 {% endblock %}

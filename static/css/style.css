@@ -556,6 +556,10 @@ img {
   display: none;
 }
 
+.checkout-form:not(:has(input[name="shipping_method"][value="delivery"]:checked)) .delivery-fields {
+  display: none;
+}
+
 .shipping-options {
   display: flex;
   flex-direction: column;

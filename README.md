@@ -254,6 +254,8 @@ python3 -m pytest tests/ -v
 
 GitHub Actions (`.github/workflows/ci.yml`) runs on every pull request and on push to `main`: install deps, pytest, then boot Uvicorn and `curl` `/health` and `/`.
 
+Shop tests cover pick-up (free), Cyprus delivery (€3.50), international delivery (€10), and studio product delete (including the block when a product has already been ordered).
+
 ## Configuration
 
 Set these in `/etc/eshop.env` on the server (`deploy/env.example`). Never commit secrets or paste API keys into git/chat. After changes: `systemctl restart eshop`.
