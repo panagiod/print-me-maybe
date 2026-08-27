@@ -162,3 +162,173 @@ def test_pay_success_creates_paid_order_from_metadata(tmp_path, monkeypatch) -> 
     assert again.status_code == 200
     assert "#1" in again.text
 
+
+def _stripe_signature(payload: bytes, secret: str) -> str:
+    import hashlib
+    import hmac
+    import time
+
+    ts = str(int(time.time()))
+    digest = hmac.new(secret.encode(), f"{ts}.".encode() + payload, hashlib.sha256).hexdigest()
+    return f"t={ts},v1={digest}"
+
+
+def test_stripe_webhook_creates_order_without_success_page(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_dummy")
+    monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", "whsec_test")
+    client = _client(monkeypatch, tmp_path)
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_dummy")
+    monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", "whsec_test")
+    products = client.get("/api/products").json()
+    glasses = next(p for p in products if p["slug"] == "glasses-case")
+    from src.store import get_order, get_product, list_orders, save_pending_checkout
+    from src.models import CartLine
+
+    product = get_product(glasses["id"])
+    assert product
+    save_pending_checkout(
+        session_id="cs_test_webhook",
+        lines=[CartLine(product=product, quantity=1)],
+        customer_name="Webhook User",
+        customer_email="web@example.com",
+        shipping_address="Pick up at studio",
+        shipping_method="pickup",
+        delivery_country="",
+        shipping_cents=0,
+        total_cents=400,
+    )
+    event = {
+        "type": "checkout.session.completed",
+        "data": {
+            "object": {
+                "id": "cs_test_webhook",
+                "payment_status": "paid",
+                "amount_total": 400,
+                "payment_intent": "pi_test_ok",
+                "metadata": {},
+            }
+        },
+    }
+    payload = json.dumps(event).encode()
+    result = client.post(
+        "/webhooks/stripe",
+        content=payload,
+        headers={"stripe-signature": _stripe_signature(payload, "whsec_test")},
+    )
+    assert result.status_code == 200
+    order = get_order(1)
+    assert order is not None
+    assert order.paid
+    assert order.customer_name == "Webhook User"
+    assert order.shipping_method == "pickup"
+
+    again = client.post(
+        "/webhooks/stripe",
+        content=payload,
+        headers={"stripe-signature": _stripe_signature(payload, "whsec_test")},
+    )
+    assert again.status_code == 200
+    assert len(list_orders()) == 1
+
+
+def test_stripe_webhook_rejects_bad_signature(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", "whsec_test")
+    client = _client(monkeypatch, tmp_path)
+    monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", "whsec_test")
+    payload = b'{"type":"checkout.session.completed","data":{"object":{}}}'
+    result = client.post(
+        "/webhooks/stripe",
+        content=payload,
+        headers={"stripe-signature": "t=1,v1=deadbeef"},
+    )
+    assert result.status_code == 400
+
+
+def test_paid_session_refunds_when_stock_is_gone(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_dummy")
+    monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", "whsec_test")
+    monkeypatch.setenv("RESEND_API_KEY", "re_test_key")
+    monkeypatch.setenv("NOTIFY_EMAIL", "studio@example.com")
+    client = _client(monkeypatch, tmp_path)
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_dummy")
+    monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", "whsec_test")
+    monkeypatch.setenv("RESEND_API_KEY", "re_test_key")
+    products = client.get("/api/products").json()
+    glasses = next(p for p in products if p["slug"] == "glasses-case")
+    from src.store import get_product, save_pending_checkout, set_product_stock, list_orders
+    from src.models import CartLine
+
+    product = get_product(glasses["id"])
+    assert product
+    save_pending_checkout(
+        session_id="cs_test_nostock",
+        lines=[CartLine(product=product, quantity=1)],
+        customer_name="Late Buyer",
+        customer_email="late@example.com",
+        shipping_address="Pick up at studio",
+        shipping_method="pickup",
+        delivery_country="",
+        shipping_cents=0,
+        total_cents=400,
+    )
+    set_product_stock(product.id, 0)
+    refunds: list[str] = []
+    mail: list[dict] = []
+
+    def fake_urlopen(req, timeout=20):
+        url = req.full_url
+        if url.endswith("/refunds"):
+            refunds.append(req.data.decode() if req.data else "")
+
+            class Resp:
+                def read(self):
+                    return b'{"id":"re_test"}'
+
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, *args):
+                    return False
+
+            return Resp()
+        mail.append(json.loads(req.data.decode()))
+
+        class MailResp:
+            status = 200
+
+            def read(self):
+                return b'{"id":"email_1"}'
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+        return MailResp()
+
+    monkeypatch.setattr("src.payments.urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr("src.notify.urllib.request.urlopen", fake_urlopen)
+    event = {
+        "type": "checkout.session.completed",
+        "data": {
+            "object": {
+                "id": "cs_test_nostock",
+                "payment_status": "paid",
+                "amount_total": 400,
+                "payment_intent": "pi_test_refund",
+                "metadata": {},
+            }
+        },
+    }
+    payload = json.dumps(event).encode()
+    result = client.post(
+        "/webhooks/stripe",
+        content=payload,
+        headers={"stripe-signature": _stripe_signature(payload, "whsec_test")},
+    )
+    assert result.status_code == 200
+    assert list_orders() == []
+    assert any("pi_test_refund" in body for body in refunds)
+    assert any("paid checkout failed" in (m.get("subject") or "").lower() for m in mail)
+

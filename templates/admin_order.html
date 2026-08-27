@@ -16,6 +16,9 @@
     <h2>Customer</h2>
     <p class="order-shipping-name">{{ order.customer_name }}</p>
     <p class="order-shipping-email"><a href="mailto:{{ order.customer_email }}">{{ order.customer_email }}</a></p>
+    {% if order.shipping_label %}
+    <p class="order-shipping-method">{{ order.shipping_label }}</p>
+    {% endif %}
     <p class="order-shipping-address">{{ order.shipping_address }}</p>
 
     <form action="/admin/orders/{{ order.id }}" method="post" class="checkout-form">

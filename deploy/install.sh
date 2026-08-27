@@ -53,6 +53,18 @@ fi
 cp "$APP_DIR/deploy/Caddyfile" /etc/caddy/Caddyfile
 chmod 750 "$APP_DIR/deploy/backup.sh" "$APP_DIR/deploy/deploy.sh" || true
 
+_install_backup_cron() {
+  local line="15 3 * * * /opt/eshop/deploy/backup.sh >> /var/lib/eshop/backups/cron.log 2>&1"
+  local current
+  current="$(crontab -l 2>/dev/null || true)"
+  if echo "$current" | grep -qF "/opt/eshop/deploy/backup.sh"; then
+    return 0
+  fi
+  printf '%s\n%s\n' "$current" "$line" | crontab -
+  echo "Installed nightly SQLite backup cron (03:15 UTC)"
+}
+_install_backup_cron
+
 chown -R eshop:eshop "$APP_DIR" "$DATA_DIR"
 chown root:eshop /etc/eshop.env
 chmod 640 /etc/eshop.env

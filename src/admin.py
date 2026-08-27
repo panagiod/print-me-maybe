@@ -34,6 +34,7 @@ from src.store import (
     delete_product,
     euros_to_cents,
     get_order,
+    get_product,
     list_all_products,
     list_orders,
     order_status_counts,
@@ -41,6 +42,7 @@ from src.store import (
     unique_slug,
     update_order_notes,
     update_order_status,
+    update_product,
 )
 from src.uploads import save_product_image
 
@@ -294,6 +296,91 @@ def product_create(
             stock=stock,
             image_url=image_url,
             slug=slug,
+        )
+    except ValueError as exc:
+        return error_page(str(exc))
+
+    return RedirectResponse(url="/admin/stock", status_code=303)
+
+
+@router.get("/products/{product_id}/edit")
+def product_edit_page(request: Request, product_id: int) -> Any:
+    gate = require_admin(request)
+    if gate:
+        return gate
+    product = get_product(product_id)
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    return templates.TemplateResponse(
+        request,
+        "admin_product_edit.html",
+        _ctx(
+            request,
+            {
+                "product": product,
+                "categories": CATEGORIES,
+                "error": None,
+                "form_name": product.name,
+                "form_description": product.description,
+                "form_price": f"{product.price_cents / 100:.2f}",
+                "form_category": product.category,
+                "form_stock": product.stock,
+            },
+        ),
+    )
+
+
+@router.post("/products/{product_id}/edit")
+def product_edit_submit(
+    request: Request,
+    product_id: int,
+    name: str = Form(...),
+    description: str = Form(...),
+    price: str = Form(...),
+    category: str = Form(...),
+    stock: int = Form(0),
+    image: UploadFile | None = File(None),
+) -> Any:
+    gate = require_admin(request)
+    if gate:
+        return gate
+    product = get_product(product_id)
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    def error_page(message: str, status_code: int = 400):
+        return templates.TemplateResponse(
+            request,
+            "admin_product_edit.html",
+            _ctx(
+                request,
+                {
+                    "product": product,
+                    "categories": CATEGORIES,
+                    "error": message,
+                    "form_name": name,
+                    "form_description": description,
+                    "form_price": price,
+                    "form_category": category,
+                    "form_stock": stock,
+                },
+            ),
+            status_code=status_code,
+        )
+
+    try:
+        price_cents = euros_to_cents(price)
+        image_url = None
+        if image is not None and image.filename:
+            image_url = save_product_image(product.slug, image)
+        update_product(
+            product_id,
+            name=name,
+            description=description,
+            price_cents=price_cents,
+            category=category,
+            stock=stock,
+            image_url=image_url,
         )
     except ValueError as exc:
         return error_page(str(exc))

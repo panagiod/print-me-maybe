@@ -22,6 +22,17 @@ DELIVERY_COUNTRIES = ("cyprus", "other")
 PICKUP_ADDRESS_LABEL = "Pick up at studio"
 
 
+def shipping_method_label(shipping_method: str, delivery_country: str | None = None) -> str:
+    """Human-readable fulfillment method for admin, emails, and order pages."""
+    if shipping_method == "pickup":
+        return "Pick up at studio"
+    if delivery_country == "other":
+        return "Delivery outside Cyprus"
+    if shipping_method == "delivery":
+        return "Delivery in Cyprus"
+    return ""
+
+
 def format_money(cents: int) -> str:
     """Render integer cents as a euro string for templates."""
     return f"€{cents / 100:.2f}"
@@ -120,10 +131,16 @@ class Order:
     notes: str = ""
     lookup_token: str = ""
     payment_status: str = "unpaid"
+    shipping_method: str = ""
+    delivery_country: str = ""
 
     @property
     def paid(self) -> bool:
         return self.payment_status == "paid"
+
+    @property
+    def shipping_label(self) -> str:
+        return shipping_method_label(self.shipping_method, self.delivery_country or None)
 
     @property
     def status_label(self) -> str:

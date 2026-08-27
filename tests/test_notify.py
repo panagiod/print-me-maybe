@@ -72,12 +72,15 @@ def test_notify_sends_via_resend(monkeypatch) -> None:
     monkeypatch.setattr("src.notify.urllib.request.urlopen", fake_urlopen)
     assert mail_configured() is True
     assert notify_new_order(_sample_order()) is True
-    assert len(captured) == 1
-    url, payload = captured[0]
-    assert url == "https://api.resend.com/emails"
-    assert payload["to"] == ["dimitrioupanagiotis@outlook.com"]
-    assert "Floral Glasses Case" in payload["text"]
-    assert payload["reply_to"] == "ada@example.com"
+    assert len(captured) == 2
+    studio = captured[0][1]
+    customer = captured[1][1]
+    assert studio["to"] == ["dimitrioupanagiotis@outlook.com"]
+    assert "Floral Glasses Case" in studio["text"]
+    assert studio["reply_to"] == "ada@example.com"
+    assert customer["to"] == ["ada@example.com"]
+    assert "View your order:" in customer["text"]
+    assert "customer-order-token-12" in customer["text"]
 
 
 def test_build_order_email_includes_customer_and_totals() -> None:
