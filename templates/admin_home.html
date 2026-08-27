@@ -5,7 +5,7 @@
 {% block content %}
 <p class="breadcrumb"><a href="/">Shop</a> / Home text</p>
 <h1 class="page-title">Home text</h1>
-<p class="hero-subtitle">Title and banner on the public shop home. Saved in the database on this server — not in GitHub — so a restart or deploy does not put the old wording back.</p>
+<p class="hero-subtitle">Eyebrow, title, and banner on the public shop home. Saved in the database on this server — not in GitHub — so a restart or deploy does not put the old wording back.</p>
 
 {% if error %}
 <div class="alert alert-error" role="alert">{{ error }}</div>
@@ -14,9 +14,14 @@
 <div class="alert alert-ok" role="status">Home text saved.</div>
 {% endif %}
 
-<form action="/admin/home" method="post" class="checkout-form add-genre-form">
+<form action="{{ studio_path }}/home" method="post" class="checkout-form add-genre-form">
+  {% include "_csrf.html" %}
   <fieldset>
     <legend>Shop home</legend>
+    <label>
+      Eyebrow
+      <input type="text" name="eyebrow" required maxlength="40" value="{{ form_eyebrow }}">
+    </label>
     <label>
       Title
       <textarea name="title" rows="2" required maxlength="120">{{ form_title }}</textarea>

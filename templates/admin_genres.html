@@ -3,7 +3,7 @@
 {% block title %}Genres — {{ shop_name }}{% endblock %}
 
 {% block content %}
-<p class="breadcrumb"><a href="/admin/stock">Stock</a> / Genres</p>
+<p class="breadcrumb"><a href="{{ studio_path }}/stock">Stock</a> / Genres</p>
 <h1 class="page-title">Genres</h1>
 <p class="hero-subtitle">These names are the chips on the shop and the genre list when you add or edit a product. Renaming a genre updates every listing that uses it. Removing one that still has products asks you to move those listings first.</p>
 
@@ -14,7 +14,8 @@
 <div class="alert alert-ok" role="status">Genre added.</div>
 {% endif %}
 
-<form action="/admin/genres" method="post" class="checkout-form add-genre-form">
+<form action="{{ studio_path }}/genres" method="post" class="checkout-form add-genre-form">
+  {% include "_csrf.html" %}
   <fieldset>
     <legend>Add a genre</legend>
     <label>
@@ -34,7 +35,8 @@
 <ul class="genre-list">
   {% for genre in genres %}
   <li class="genre-card">
-    <form action="/admin/genres/{{ genre.id }}/edit" method="post" class="genre-edit">
+    <form action="{{ studio_path }}/genres/{{ genre.id }}/edit" method="post" class="genre-edit">
+  {% include "_csrf.html" %}
       <label>
         Name
         <input type="text" name="name" required maxlength="40" value="{{ genre.name }}">
@@ -46,7 +48,8 @@
       <p class="genre-count">{{ genre.product_count }} product{% if genre.product_count != 1 %}s{% endif %}</p>
       <button type="submit" class="btn btn-primary btn-sm">Save</button>
     </form>
-    <form action="/admin/genres/{{ genre.id }}/delete" method="post" class="genre-remove" data-confirm="{% if genre.product_count %}Remove {{ genre.name }} and move its products?{% else %}Remove {{ genre.name }}?{% endif %}">
+    <form action="{{ studio_path }}/genres/{{ genre.id }}/delete" method="post" class="genre-remove" data-confirm="{% if genre.product_count %}Remove {{ genre.name }} and move its products?{% else %}Remove {{ genre.name }}?{% endif %}">
+  {% include "_csrf.html" %}
       {% if genre.product_count and genres|length > 1 %}
       <label>
         Move products to

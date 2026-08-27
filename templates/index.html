@@ -4,16 +4,28 @@
 
 {% block content %}
 <section class="hero">
-  <p class="hero-eyebrow">Print Me Maybe</p>
+  <p class="hero-eyebrow">{{ home_eyebrow }}</p>
   <h1 class="hero-title">{{ home_title }}</h1>
   <p class="hero-subtitle">{{ home_banner }}</p>
 </section>
 
+<form action="/" method="get" class="shop-search" role="search">
+  {% if active_category %}<input type="hidden" name="category" value="{{ active_category }}">{% endif %}
+  <label>
+    <span class="visually-hidden">Search prints</span>
+    <input type="search" name="q" value="{{ search_q }}" placeholder="Search prints" maxlength="80">
+  </label>
+  <button type="submit" class="btn btn-ghost">Search</button>
+  {% if search_q %}
+  <a href="{% if active_category %}/?category={{ active_category | urlencode }}{% else %}/{% endif %}" class="btn btn-ghost">Clear</a>
+  {% endif %}
+</form>
+
 {% if categories %}
 <nav class="category-bar" aria-label="Genres">
-  <a href="/" class="category-chip {% if not active_category %}active{% endif %}">All</a>
+  <a href="/{% if search_q %}?q={{ search_q | urlencode }}{% endif %}" class="category-chip {% if not active_category %}active{% endif %}">All</a>
   {% for cat in categories %}
-  <a href="/?category={{ cat | urlencode }}" class="category-chip {% if active_category == cat %}active{% endif %}">{{ cat }}</a>
+  <a href="/?category={{ cat | urlencode }}{% if search_q %}&q={{ search_q | urlencode }}{% endif %}" class="category-chip {% if active_category == cat %}active{% endif %}">{{ cat }}</a>
   {% endfor %}
 </nav>
 {% endif %}
@@ -43,6 +55,7 @@
       </h2>
       <p class="product-price">{{ product.price_display }}</p>
       <form action="/cart/add" method="post" class="add-form">
+  {% include "_csrf.html" %}
         <input type="hidden" name="product_id" value="{{ product.id }}">
         <input type="hidden" name="quantity" value="1">
         <button type="submit" class="btn btn-primary">Add to cart</button>
@@ -50,7 +63,7 @@
     </div>
   </article>
   {% else %}
-  <p class="empty-state">No products in this genre right now.</p>
+  <p class="empty-state">{% if search_q %}No prints match that search.{% else %}No products in this genre right now.{% endif %}</p>
   {% endfor %}
 </section>
 {% if ns.multi_photos %}

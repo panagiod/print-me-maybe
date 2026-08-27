@@ -3,7 +3,7 @@
 {% block title %}Edit {{ product.name }} — {{ shop_name }}{% endblock %}
 
 {% block content %}
-<p class="breadcrumb"><a href="/admin/stock">Stock</a> / Edit{% if product.listed %} / <a href="/product/{{ product.slug }}">View in shop</a>{% endif %}</p>
+<p class="breadcrumb"><a href="{{ studio_path }}/stock">Stock</a> / Edit{% if product.listed %} / <a href="/product/{{ product.slug }}">View in shop</a>{% endif %}</p>
 <h1 class="page-title">Edit {{ product.name }}</h1>
 
 {% if error %}
@@ -21,11 +21,13 @@
       {% if loop.first %}
       <span class="status-pill status-paid">Cover</span>
       {% else %}
-      <form action="/admin/products/{{ product.id }}/images/{{ photo.id }}/cover" method="post">
+      <form action="{{ studio_path }}/products/{{ product.id }}/images/{{ photo.id }}/cover" method="post">
+  {% include "_csrf.html" %}
         <button type="submit" class="btn btn-ghost btn-sm">Make cover</button>
       </form>
       {% endif %}
-      <form action="/admin/products/{{ product.id }}/images/{{ photo.id }}/delete" method="post" data-confirm="Remove this photo?">
+      <form action="{{ studio_path }}/products/{{ product.id }}/images/{{ photo.id }}/delete" method="post" data-confirm="Remove this photo?">
+  {% include "_csrf.html" %}
         <button type="submit" class="btn btn-ghost btn-sm">Remove</button>
       </form>
     </li>
@@ -37,7 +39,8 @@
   {% endif %}
 </section>
 
-<form action="/admin/products/{{ product.id }}/edit" method="post" enctype="multipart/form-data" class="checkout-form add-product-form">
+<form action="{{ studio_path }}/products/{{ product.id }}/edit" method="post" enctype="multipart/form-data" class="checkout-form add-product-form">
+  {% include "_csrf.html" %}
   <fieldset>
     <legend>Listing</legend>
     <label>

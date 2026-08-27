@@ -10,7 +10,8 @@
 <div class="alert alert-error" role="alert">{{ error }}</div>
 {% endif %}
 
-<form action="/admin/login" method="post" class="checkout-form admin-login-form">
+<form action="{{ studio_path }}/login" method="post" class="checkout-form admin-login-form">
+  {% include "_csrf.html" %}
   <label>
     Admin password
     <input type="password" name="password" required autocomplete="current-password">

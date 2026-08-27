@@ -1,9 +1,27 @@
 (function () {
+  document.documentElement.addEventListener("htmx:configRequest", function (event) {
+    const meta = document.querySelector('meta[name="csrf-token"]');
+    if (meta && meta.getAttribute("content")) {
+      event.detail.headers["X-CSRF-Token"] = meta.getAttribute("content");
+    }
+  });
+
   document.addEventListener(
     "submit",
     function (event) {
     const form = event.target;
     if (!(form instanceof HTMLFormElement)) return;
+    if ((form.getAttribute("method") || "get").toLowerCase() === "post") {
+      const meta = document.querySelector('meta[name="csrf-token"]');
+      const token = meta && meta.getAttribute("content");
+      if (token && !form.querySelector('input[name="csrf_token"]')) {
+        const input = document.createElement("input");
+        input.type = "hidden";
+        input.name = "csrf_token";
+        input.value = token;
+        form.appendChild(input);
+      }
+    }
 
     const status = form.querySelector('select[name="status"]');
     if (status instanceof HTMLSelectElement && status.value === "cancelled") {

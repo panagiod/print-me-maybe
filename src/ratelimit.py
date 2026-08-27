@@ -14,8 +14,12 @@ from fastapi.templating import Jinja2Templates
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import ASGIApp
 
+from src.security import issue_csrf_token, studio_path, studio_url
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+templates.env.globals["studio_path"] = studio_path()
+templates.env.globals["csrf_token"] = issue_csrf_token
 
 EXEMPT_PREFIXES = ("/health", "/static/", "/media/", "/webhooks/")
 
@@ -80,13 +84,15 @@ def _rules(method: str, path: str) -> list[tuple[str, int, int]]:
     ]
     if method != "POST":
         return rules
-    if path == "/admin/login":
+    login_path = studio_url("/login")
+    studio_prefix = studio_path().rstrip("/") + "/"
+    if path == login_path:
         rules.append(("login", _int_env("RATE_LIMIT_LOGIN", 5), _int_env("RATE_LIMIT_LOGIN_WINDOW", 900)))
     elif path == "/checkout":
         rules.append(("checkout", _int_env("RATE_LIMIT_CHECKOUT", 12), _int_env("RATE_LIMIT_CHECKOUT_WINDOW", 3600)))
     elif path.startswith("/cart/"):
         rules.append(("cart", _int_env("RATE_LIMIT_CART", 60), 60))
-    elif path.startswith("/admin/"):
+    elif path == studio_path() or path.startswith(studio_prefix):
         rules.append(("admin", _int_env("RATE_LIMIT_ADMIN", 60), 60))
     else:
         rules.append(("write", _int_env("RATE_LIMIT_WRITE", 60), 60))
@@ -105,7 +111,7 @@ def rate_limited_response(request: Request, retry_after: int) -> Response:
             status_code=429,
             headers=headers,
         )
-    if request.url.path == "/admin/login":
+    if request.url.path == studio_url("/login"):
         return templates.TemplateResponse(
             request,
             "admin_login.html",

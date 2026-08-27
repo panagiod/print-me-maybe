@@ -97,7 +97,7 @@ def test_alembic_upgrades_legacy_sqlite(tmp_path, monkeypatch) -> None:
     assert "shop_settings" in tables
     assert "alembic_version" in tables
     version = conn.execute("SELECT version_num FROM alembic_version").fetchone()[0]
-    assert version == "008_shop_settings"
+    assert version == "009_shop_hardening"
     leftover = conn.execute("SELECT category FROM products WHERE slug = 'legacy-mug'").fetchone()
     assert leftover[0] == "Household"
     genres = {row[0] for row in conn.execute("SELECT name FROM product_genres")}
@@ -106,6 +106,7 @@ def test_alembic_upgrades_legacy_sqlite(tmp_path, monkeypatch) -> None:
     settings = {row[0] for row in conn.execute("SELECT key FROM shop_settings")}
     assert "home_title" in settings
     assert "home_banner" in settings
+    assert "home_eyebrow" in settings
     assert "archived" in order_cols
     assert "code" in product_cols
     assert "product_code" in item_cols
@@ -119,10 +120,10 @@ def test_admin_upload_uses_thumb_on_catalog(tmp_path, monkeypatch) -> None:
     init_schema()
     seed_products()
     client = TestClient(app)
-    client.post("/admin/login", data={"password": "printmemaybe"})
+    client.post("/studio/login", data={"password": "printmemaybe"})
     payload = _jpeg_bytes(1800, 1200)
     created = client.post(
-        "/admin/products",
+        "/studio/products",
         data={
             "name": "Large Photo Print",
             "description": "Resized upload.",
@@ -158,10 +159,10 @@ def test_htmx_stock_qty_returns_card_not_full_page(tmp_path, monkeypatch) -> Non
     init_schema()
     seed_products()
     client = TestClient(app)
-    client.post("/admin/login", data={"password": "printmemaybe"})
+    client.post("/studio/login", data={"password": "printmemaybe"})
     glasses = next(p for p in list_all_products() if p.slug == "glasses-case")
     fragment = client.post(
-        f"/admin/stock/{glasses.id}",
+        f"/studio/stock/{glasses.id}",
         data={"stock": "9"},
         headers={"HX-Request": "true"},
     )
@@ -169,16 +170,16 @@ def test_htmx_stock_qty_returns_card_not_full_page(tmp_path, monkeypatch) -> Non
     assert "admin-product-card" in fragment.text
     assert "<html" not in fragment.text.lower()
     assert 'value="9"' in fragment.text
-    assert 'hx-post="/admin/stock/' in fragment.text
+    assert 'hx-post="/studio/stock/' in fragment.text
     full = client.post(
-        f"/admin/stock/{glasses.id}",
+        f"/studio/stock/{glasses.id}",
         data={"stock": "8"},
         follow_redirects=False,
     )
     assert full.status_code == 303
-    assert full.headers["location"].startswith("/admin/stock")
+    assert full.headers["location"].startswith("/studio/stock")
     hidden = client.post(
-        f"/admin/products/{glasses.id}/hide",
+        f"/studio/products/{glasses.id}/hide",
         headers={"HX-Request": "true"},
     )
     assert hidden.status_code == 200
@@ -203,14 +204,14 @@ def test_packing_slip_pdf_download(tmp_path, monkeypatch) -> None:
         },
     )
     order_id = int(checkout.text.split("#")[1].split("<")[0])
-    guest = client.get(f"/admin/orders/{order_id}/print.pdf", follow_redirects=False)
+    guest = client.get(f"/studio/orders/{order_id}/print.pdf", follow_redirects=False)
     assert guest.status_code == 303
-    client.post("/admin/login", data={"password": "printmemaybe"})
-    pdf = client.get(f"/admin/orders/{order_id}/print.pdf")
+    client.post("/studio/login", data={"password": "printmemaybe"})
+    pdf = client.get(f"/studio/orders/{order_id}/print.pdf")
     assert pdf.status_code == 200
     assert pdf.headers["content-type"].startswith("application/pdf")
     assert pdf.content[:4] == b"%PDF"
     assert f"order-{order_id}-packing-slip.pdf" in pdf.headers.get("content-disposition", "")
-    page = client.get(f"/admin/orders/{order_id}")
+    page = client.get(f"/studio/orders/{order_id}")
     assert "Download PDF" in page.text
-    assert f"/admin/orders/{order_id}/print.pdf" in page.text
+    assert f"/studio/orders/{order_id}/print.pdf" in page.text

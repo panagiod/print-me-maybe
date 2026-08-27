@@ -79,7 +79,66 @@ def test_failed_login_is_logged(caplog) -> None:
     seed_products()
     client = TestClient(app)
     with caplog.at_level(logging.WARNING, logger="src.admin"):
-        denied = client.post("/admin/login", data={"password": "wrong"})
+        denied = client.post("/studio/login", data={"password": "wrong"})
     assert denied.status_code == 401
     assert any("Failed admin login" in rec.message for rec in caplog.records)
     assert "wrong" not in caplog.text
+
+
+def test_listing_photo_accepts_head() -> None:
+    init_schema()
+    seed_products()
+    client = TestClient(app)
+    glasses = next(p for p in list_all_products() if p.slug == "glasses-case")
+    photo = client.get(glasses.image_url)
+    assert photo.status_code == 200
+    head = client.head(glasses.image_url)
+    assert head.status_code == 200
+    assert head.headers["content-type"].startswith("image/")
+
+
+def test_studio_csrf_rejects_login_without_token(monkeypatch) -> None:
+    monkeypatch.delenv("CSRF_DISABLED", raising=False)
+    init_schema()
+    seed_products()
+    client = TestClient(app)
+    missing = client.post("/studio/login", data={"password": "printmemaybe"}, follow_redirects=False)
+    assert missing.status_code == 403
+    login_page = client.get("/studio/login")
+    token = login_page.text.split('name="csrf_token" value="', 1)[1].split('"', 1)[0]
+    assert len(token) >= 16
+    ok = client.post(
+        "/studio/login",
+        data={"password": "printmemaybe", "csrf_token": token},
+        follow_redirects=False,
+    )
+    assert ok.status_code == 303
+    assert ok.headers["location"] == "/studio/orders"
+
+
+def test_studio_session_expires_without_clearing_cart(monkeypatch) -> None:
+    init_schema()
+    seed_products()
+    client = TestClient(app)
+    glasses = next(p for p in list_all_products() if p.slug == "glasses-case")
+    client.post("/cart/add", data={"product_id": glasses.id, "quantity": 1})
+    client.post("/studio/login", data={"password": "printmemaybe"})
+    assert client.get("/studio/orders").status_code == 200
+    monkeypatch.setattr("src.security.admin_session_seconds", lambda: 0)
+    expired = client.get("/studio/orders", follow_redirects=False)
+    assert expired.status_code == 303
+    assert expired.headers["location"] == "/studio/login"
+    cart = client.get("/cart")
+    assert "Floral Glasses Case" in cart.text
+
+
+def test_studio_path_default_and_override(monkeypatch) -> None:
+    from src.security import studio_path, studio_url
+
+    monkeypatch.delenv("ADMIN_PATH", raising=False)
+    assert studio_path() == "/studio"
+    assert studio_url("/login") == "/studio/login"
+    monkeypatch.setenv("ADMIN_PATH", "backoffice")
+    assert studio_path() == "/backoffice"
+    monkeypatch.setenv("ADMIN_PATH", "/cart")
+    assert studio_path() == "/studio"

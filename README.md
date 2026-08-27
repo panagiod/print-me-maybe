@@ -2,7 +2,7 @@
 
 **Live shop:** [print-me-maybe.com](https://print-me-maybe.com) — [Print Me Maybe](https://www.instagram.com/print.me.maybe/) on a Hetzner VPS with persistent storage, Stripe Checkout, and Resend emails.
 
-Studio login: [print-me-maybe.com/admin/login](https://print-me-maybe.com/admin/login) (not linked in the public nav). Password is in `/etc/eshop.env` as `ADMIN_PASSWORD`.
+Studio login: [print-me-maybe.com/studio/login](https://print-me-maybe.com/studio/login) (not linked in the public nav). Password is in `/etc/eshop.env` as `ADMIN_PASSWORD`. Old `/admin` URLs 404 on purpose.
 
 ## Purpose
 
@@ -27,7 +27,7 @@ The shop is **in production**. Push to `main` deploys automatically.
 | Deploy shop | [#5](https://github.com/panagiod/print-me-maybe/issues/5) | Done — CI/CD on `main` |
 | Stripe Checkout | [#6](https://github.com/panagiod/print-me-maybe/issues/6) | Done — webhook + secret on the VPS |
 | Resend emails | [#2](https://github.com/panagiod/print-me-maybe/issues/2) | Done |
-| Paid order survives reboot | [#4](https://github.com/panagiod/print-me-maybe/issues/4) | Still worth doing once |
+| Paid order survives reboot | [#4](https://github.com/panagiod/print-me-maybe/issues/4) | Done — real paid test already completed |
 
 The [Go live](#go-live-cheapest-stack) sections below are a rebuild record, not a to-do list.
 
@@ -89,7 +89,7 @@ Track leftover checks in [Issues](https://github.com/panagiod/print-me-maybe/iss
    `install.sh` generates `SESSION_SECRET` and `ADMIN_PASSWORD` and prints the admin password once. Caddy gets HTTPS automatically after DNS points at the server.
 5. **Stripe** — **done:** ([#6](https://github.com/panagiod/print-me-maybe/issues/6)) [dashboard.stripe.com](https://dashboard.stripe.com) → activate payments, EUR, copy the **secret** key into `STRIPE_SECRET_KEY`. Add a webhook endpoint `https://print-me-maybe.com/webhooks/stripe` for `checkout.session.completed` and put the signing secret in `STRIPE_WEBHOOK_SECRET`. Checkout redirects to Stripe; the order is created from the webhook (or `/pay/success`) only after `payment_status=paid`.
 6. **Resend** — **done:** ([#2](https://github.com/panagiod/print-me-maybe/issues/2)) [resend.com/domains](https://resend.com/domains) → add `print-me-maybe.com` (not `onrender.com`) → paste DNS records → wait for **Verified** → set `RESEND_FROM=Print Me Maybe <orders@print-me-maybe.com>`.
-7. **Smoke test** — still open: [#4](https://github.com/panagiod/print-me-maybe/issues/4) Check `https://print-me-maybe.com/health` — `"payments": true`, `"persistent": true`. Place a **test** card order (`ACCT-000015`), reboot the VPS, confirm the order is still in studio.
+7. **Smoke test** — **done:** [#4](https://github.com/panagiod/print-me-maybe/issues/4). Check `https://print-me-maybe.com/health` — `"payments": true`, `"persistent": true`. A real paid order was placed; the shop is the live store.
 
 Until `STRIPE_SECRET_KEY` is set, checkout stays a no-card demo (same as the Render shop). Production has the key set (`/health` shows `"payments": true`).
 
@@ -201,11 +201,13 @@ Resend TXT/MX records for email ([#2](https://github.com/panagiod/print-me-maybe
 ## Features
 
 - Catalog with genre filters (Harry Potter, Lord of the Rings, Household, Pokémon, Toys by default; add, rename, or remove genres in studio); photos sit in a square well (tall or wide shots are cropped to fill); several photos scroll left/right on the home cards and on the product page (swipe, arrows, or thumbs)
+- Search on the shop home (name, description, or product code)
 - Session cart; quantity cannot exceed stock
 - Shipping chosen at checkout (see [Shipping](#shipping)): pick up free, Cyprus delivery €3.50, Greece delivery €10
 - Checkout: name, email, phone (required for delivery), street / city / postcode, optional order notes, pick-up or delivery (Cyprus or Greece), **card (Stripe)** or **cash at pick up**
 - Customer order page at `/order/{unguessable-token}` — status, payment, tracking number, notes (times in Europe/Nicosia)
-- Studio at `/admin` (not linked in public nav): orders (search, shipping filters), tracking, customer/studio notes, copy customer link, resend mail, cash/bank paid, packing slip (print + PDF), cancel (Stripe refund + restock + customer email), catalog with photos, hide/show, add/edit/remove product + gallery, **genres**, **home title and banner**
+- Privacy page at `/privacy`; `robots.txt` and `sitemap.xml`
+- Studio at `/studio` (not linked in public nav; optional `ADMIN_PATH`): orders (search, shipping filters), tracking, customer/studio notes, copy customer link, resend mail, cash/bank paid, packing slip (print + PDF), cancel (Stripe refund + restock + customer email), catalog with photos, hide/show, add/edit/remove product + gallery, **genres**, **home eyebrow, title, and banner**
 - Emails via [Resend](https://resend.com): new order (studio + customer), ready to collect/pack, shipped (customer; delivery waits for tracking), cancelled (studio + customer), attack alerts
 - JSON catalog at `GET /api/products`
 - Liveness at `GET /health` (`mail`, `payments`, `persistent`)
@@ -259,7 +261,7 @@ pip install -r requirements.txt -r requirements-dev.txt
 uvicorn src.main:app --reload --port 8080
 ```
 
-Open [http://localhost:8080](http://localhost:8080). Studio: [http://localhost:8080/admin/login](http://localhost:8080/admin/login) — password `printmemaybe` unless you set `ADMIN_PASSWORD`.
+Open [http://localhost:8080](http://localhost:8080). Studio: [http://localhost:8080/studio/login](http://localhost:8080/studio/login) — password `printmemaybe` unless you set `ADMIN_PASSWORD`.
 
 SQLite, uploaded photos, and imported listing photos go to `DATA_DIR` (default `/tmp/eshop-data`).
 
@@ -333,6 +335,8 @@ Set these in `/etc/eshop.env` on the server (`deploy/env.example`). Never commit
 | `ENV` | unset locally; `production` on the VPS | Requires `SESSION_SECRET` and `ADMIN_PASSWORD` |
 | `SESSION_SECRET` | generated by `install.sh` | Signs session cookies; **required** in production |
 | `ADMIN_PASSWORD` | `printmemaybe` locally; generated by `install.sh` | Studio login |
+| `ADMIN_PATH` | `/studio` | Studio URL prefix. Old `/admin` does not redirect. Restart after changing. |
+| `ADMIN_SESSION_HOURS` | `8` | Studio login lifetime. The cart cookie still lasts 7 days. |
 | `SESSION_HTTPS_ONLY` | on when `ENV=production` | Secure cookie flag |
 | `SHOP_NAME` | `Print Me Maybe` | Branding |
 | `SHOP_URL` | your `https://` domain | Links in emails |
@@ -346,6 +350,8 @@ Set these in `/etc/eshop.env` on the server (`deploy/env.example`). Never commit
 | `ATTACK_ALERT_COOLDOWN` | `3600` | Seconds between similar security emails |
 | `NOTIFY_SYNC` | unset | Set to `1` in tests so checkout waits for mail |
 | `RATE_LIMIT_DISABLED` | unset | Set to `1` to turn limits off (tests) |
+| `CSRF_DISABLED` | unset | Set to `1` in tests to skip studio CSRF checks |
+| `BACKUP_REMOTE` | unset | Optional directory or `rsync` target for nightly copies off this disk |
 
 `GET /health` includes `"mail"` and `"payments"` (booleans, no secrets) and `"persistent"` (true when `DATA_DIR` is not under `/tmp`).
 
@@ -360,7 +366,7 @@ Two dashboards that are easy to mix up:
 
 ## Shop behaviour
 
-**Catalog.** Live listing names, descriptions, genres, prices, stock, and photos live in SQLite (`DATA_DIR/eshop.db`) and `DATA_DIR/product-images` — not in GitHub. `src/seed.py` fills the catalog **only when the products table is empty** (first boot / tests). After that, boot never inserts or overwrites listings — a product you **Remove** in studio stays gone after restart or deploy. Genres live in the `product_genres` table (studio **Genres** page: add, rename, remove). Renaming a genre updates every product that uses it. Home **title** and **banner** live in `shop_settings` (studio **Home**); boot inserts the starter wording only if those keys are missing. Old `3D Prints` / `Laser Engraving` labels are renamed to Household. Listing photos that still point at `/static/images/products/` are copied into `DATA_DIR` and rewritten to `/media/products/...`. The git tree keeps only `placeholder.svg` as UI chrome. Each product can have **several photos**; `image_url` is the cover (first gallery image) used on cards and in the cart. Codes (`3D-GLASSES`, `LC-BOARD`, or a prefix from the genre such as `HP-001` / `SW-012`) show on Stock, packing slips, and studio order emails, and are snapshotted onto each order line.
+**Catalog.** Live listing names, descriptions, genres, prices, stock, and photos live in SQLite (`DATA_DIR/eshop.db`) and `DATA_DIR/product-images` — not in GitHub. `src/seed.py` fills the catalog **only when the products table is empty** (first boot / tests). After that, boot never inserts or overwrites listings — a product you **Remove** in studio stays gone after restart or deploy. Genres live in the `product_genres` table (studio **Genres** page: add, rename, remove). Renaming a genre updates every product that uses it. Home **eyebrow**, **title**, and **banner** live in `shop_settings` (studio **Home**); boot inserts the starter wording only if those keys are missing. Old `3D Prints` / `Laser Engraving` labels are renamed to Household. Leftover dragon SKUs still labelled Lord of the Rings move to Toys once; Psyduck still labelled Household moves to Pokemon once. Leftover `3D-*` / `LC-*` codes are rewritten to the current genre prefix (order lines keep the code they were sold with). The shop home has a search box. Listing photos that still point at `/static/images/products/` are copied into `DATA_DIR` and rewritten to `/media/products/...`. The git tree keeps only `placeholder.svg` as UI chrome. Each product can have **several photos**; `image_url` is the cover (first gallery image) used on cards and in the cart. Codes (`HH-GLASSES`, `TOY-DRAGON`, or a prefix from the genre such as `HP-001` / `SW-012`) show on Stock, packing slips, and studio order emails, and are snapshotted onto each order line.
 
 **Cart.** Stored in the signed session cookie (7 days). Add/update quantity is capped at remaining stock. Zero stock hides a product from the shop and the product page shows **Sold out** (no Add to cart). **Hidden** products (studio toggle) are omitted from the shop and product URLs 404. The cart shows the product subtotal only; shipping is not applied until checkout.
 
@@ -406,19 +412,19 @@ Rates are decided at checkout, not from cart size. There is no free-shipping thr
 
 ## Studio admin
 
-Public nav does not advertise `/admin`. Login: `/admin/login` on your domain (production: [print-me-maybe.com/admin/login](https://print-me-maybe.com/admin/login)).
+Public nav does not advertise `/studio`. Login: `/studio/login` on your domain (production: [print-me-maybe.com/studio/login](https://print-me-maybe.com/studio/login)).
 
 | Page | What it does |
 |------|----------------|
-| `/admin/orders` | Filter by status, shipping (pickup / Cyprus / Greece / leftover international), and **date range (Cyprus time)**; **newest / oldest**; search by number, name, email, tracking, or **product code**; **Inbox vs Archived**; bulk-archive shipped/cancelled in the current view (archived orders leave the Cancelled and Shipped chips); Paid / Unpaid / Refunded; **Send test email** |
-| `/admin/orders/{id}` | Status, **tracking number**, customer notes vs studio notes, phone (`tel:`), copy customer link, resend confirmation (and shipped email), **Mark as paid (cash/bank)**, **Archive** shipped/cancelled (or **Restore to inbox**), print packing slip, **download PDF**, Stripe session id, cancel (Stripe refund if card-paid, restock, email customer) / reopen (blocked if refunded) |
-| `/admin/orders/{id}/print` | Packing slip (print hides the admin chrome) |
-| `/admin/orders/{id}/print.pdf` | Same slip as a downloadable PDF |
-| `/admin/stock` | Catalog with **photos** and **product codes**; search by name or code; genre and listed/hidden chips; qty / hide / show save in place; **Add product**; **Remove** (confirm); link to **Genres** |
-| `/admin/genres` | Add, rename, or remove shop genres (chips and product dropdown). Rename updates listings. Remove moves products to another genre if any are assigned |
-| `/admin/home` | Edit the public home **title** and **banner**. Saved in SQLite; restart/deploy does not restore the GitHub starter wording |
-| `/admin/products/new` | Add a product with optional **product code** (blank assigns a code from the genre prefix), photo preview (several photos allowed; first is the cover) |
-| `/admin/products/{id}/edit` | Name/price/copy/stock/**code**; **current photos**; add/remove/set cover; view in shop |
+| `/studio/orders` | Filter by status, shipping (pickup / Cyprus / Greece / leftover international), and **date range (Cyprus time)**; **newest / oldest**; search by number, name, email, tracking, or **product code**; **Inbox vs Archived**; bulk-archive shipped/cancelled in the current view (archived orders leave the Cancelled and Shipped chips); Paid / Unpaid / Refunded; **Send test email** |
+| `/studio/orders/{id}` | Status, **tracking number**, customer notes vs studio notes, phone (`tel:`), copy customer link, resend confirmation (and shipped email), **Mark as paid (cash/bank)**, **Archive** shipped/cancelled (or **Restore to inbox**), print packing slip, **download PDF**, Stripe session id, cancel (Stripe refund if card-paid, restock, email customer) / reopen (blocked if refunded) |
+| `/studio/orders/{id}/print` | Packing slip (print hides the admin chrome) |
+| `/studio/orders/{id}/print.pdf` | Same slip as a downloadable PDF |
+| `/studio/stock` | Catalog with **photos** and **product codes**; search by name or code; genre and listed/hidden chips; qty / hide / show save in place; **Add product**; **Remove** (confirm); link to **Genres** |
+| `/studio/genres` | Add, rename, or remove shop genres (chips and product dropdown). Rename updates listings. Remove moves products to another genre if any are assigned |
+| `/studio/home` | Edit the public home **eyebrow**, **title**, and **banner**. Saved in SQLite; restart/deploy does not restore the GitHub starter wording |
+| `/studio/products/new` | Add a product with optional **product code** (blank assigns a code from the genre prefix), photo preview (several photos allowed; first is the cover) |
+| `/studio/products/{id}/edit` | Name/price/copy/stock/**code**; **current photos**; add/remove/set cover; view in shop |
 
 ### Daily order flow
 
@@ -451,17 +457,17 @@ Delivery cannot be cash — those orders still go to Stripe Checkout.
 
 Studio **Stock** is a photo grid. Search by name, filter by genre (from **Genres**) or Listed / Hidden.
 
-**Add a product.** `/admin/products/new` — name, description, price, genre, **product code** (optional), stock, and one or more photos (preview before save). After save you return to Stock with an “added” banner. Leave the code blank to get `{prefix}-{id}` from the genre (for example `HP-012`).
+**Add a product.** `/studio/products/new` — name, description, price, genre, **product code** (optional), stock, and one or more photos (preview before save). After save you return to Stock with an “added” banner. Leave the code blank to get `{prefix}-{id}` from the genre (for example `HP-012`).
 
-**Genres.** `/admin/genres` — add a name and code prefix, rename (updates every listing on that genre), or remove. If the genre still has products, pick another genre to move them into first.
+**Genres.** `/studio/genres` — add a name and code prefix, rename (updates every listing on that genre), or remove. If the genre still has products, pick another genre to move them into first.
 
-**Home text.** `/admin/home` — title and banner on the public shop. Stored in SQLite (`shop_settings`). Boot never overwrites studio edits.
+**Home text.** `/studio/home` — eyebrow, title, and banner on the public shop. Stored in SQLite (`shop_settings`). Boot never overwrites studio edits.
 
 **Photos.** Edit shows the current gallery. The **cover** is the shop card and cart thumb; extra photos scroll left/right on the home cards and on `/product/{slug}` (swipe, arrow buttons, or thumbs on the product page). Catalog and product galleries use a **square well** and cover-crop mixed aspect photos so cards do not leave empty cavities. You can add files, **Make cover**, or **Remove** a photo. Uploads (JPG/PNG/WebP/GIF, 5 MB each) are stored uniquely under `DATA_DIR/product-images`. **Pillow** auto-rotates, strips EXIF, writes a display image (max 1600px) and a **thumb** (max 400px). Catalog cards, cart, and gallery thumbs use the thumb; the product page main image uses the display file.
 
 **Hide from shop.** **Hide** keeps the SKU and orders; it disappears from `/`, `/api/products`, and product URLs. **Show in shop** lists it again. Qty, Hide, and Show on Stock update that card **in place** (HTMX); without JavaScript they still POST and reload the page. Sold out (qty 0) is separate: the product page still exists but cannot be added to the cart.
 
-**Remove a product.** Each card has **Remove** (`POST /admin/products/{id}/delete`) and asks for confirm. Deletion is a hard delete. It is **blocked** if that product appears on any past order. In that case the studio sees that it cannot be deleted, plus **Hide from shop**. Setting stock to 0 still marks sold out without deleting history. Zero-stock and hidden cards are highlighted; sold-out and hidden sort after listed in-stock items.
+**Remove a product.** Each card has **Remove** (`POST /studio/products/{id}/delete`) and asks for confirm. Deletion is a hard delete. It is **blocked** if that product appears on any past order. In that case the studio sees that it cannot be deleted, plus **Hide from shop**. Setting stock to 0 still marks sold out without deleting history. Zero-stock and hidden cards are highlighted; sold-out and hidden sort after listed in-stock items.
 
 Uploaded photos and imported seed listing photos are served from `/media/products/...` and stored under `DATA_DIR/product-images`.
 
@@ -550,7 +556,9 @@ Attack alerts (blocked studio login or checkout flood) email at most once per ho
 ## Security
 
 - `ENV=production` refuses to boot without `SESSION_SECRET` and `ADMIN_PASSWORD`
-- Session cookies: `SameSite=lax`, HTTPS-only in production
+- Session cookies: `SameSite=lax`, HTTPS-only in production. Cart lasts 7 days; studio login expires after 8 hours (`ADMIN_SESSION_HOURS`)
+- Studio lives at `/studio` (optional `ADMIN_PATH`). `/admin` is not aliased
+- Studio POSTs require a CSRF token (form field or `X-CSRF-Token`)
 - Studio password compared with SHA-256 + `hmac.compare_digest` (failed logins are logged, never the password)
 - Security headers: `nosniff`, `DENY` framing, Referrer-Policy, Permissions-Policy, CSP, HSTS on HTTPS
 - Customer orders use `lookup_token`, not sequential public URLs
@@ -575,7 +583,15 @@ SQLite lives at `/var/lib/eshop/eshop.db`. Listing photos live under `/var/lib/e
 15 3 * * * /opt/eshop/deploy/backup.sh >> /var/lib/eshop/backups/cron.log 2>&1
 ```
 
-Each run writes `eshop-<stamp>.db` and `product-images-<stamp>.tar.gz`. Copies older than 14 days are deleted. Copy a backup off the server occasionally (`scp`) or enable a Hetzner snapshot (extra cost). Reboot the VPS after a test order and confirm studio still shows it.
+Each run writes `eshop-<stamp>.db` and `product-images-<stamp>.tar.gz` under `/var/lib/eshop/backups`. Copies older than 14 days are deleted. That is still the **same disk** as the live shop.
+
+Copy backups off the server. Either:
+
+1. **Hetzner snapshot** — Console → server → **Snapshots** (extra cost; whole disk).
+2. **`BACKUP_REMOTE`** — set in the cron environment or export before `backup.sh`. A local directory is copied with `cp`; anything else uses `rsync` (for example `user@other-host:/backups/eshop`). The on-box copy is kept even if the remote copy fails.
+3. **Manual `scp`** from your laptop: `scp root@SERVER:/var/lib/eshop/backups/eshop-*.db .`
+
+Do not rely on GitHub for listings, photos, or orders.
 
 ## License
 

@@ -15,12 +15,13 @@
 <div class="alert alert-ok" role="status">Mail is on for this server. Alerts go to {{ notify_email }}.</div>
 {% endif %}
 
-<form action="/admin/test-email" method="post" class="test-mail-form">
+<form action="{{ studio_path }}/test-email" method="post" class="test-mail-form">
+  {% include "_csrf.html" %}
   <p class="checkout-note">Order alerts go to {{ notify_email }}. After you buy a domain, follow README → Order emails, then send a test (check Junk).</p>
   <button type="submit" class="btn btn-ghost">Send test email</button>
 </form>
 
-<form action="/admin/orders" method="get" class="orders-search">
+<form action="{{ studio_path }}/orders" method="get" class="orders-search">
   {% if active_status %}<input type="hidden" name="status" value="{{ active_status }}">{% endif %}
   {% if active_shipping %}<input type="hidden" name="shipping" value="{{ active_shipping }}">{% endif %}
   {% if show_archived %}<input type="hidden" name="archived" value="1">{% endif %}
@@ -75,11 +76,12 @@
 
 {% if archivable_in_view and not show_archived %}
 <form
-  action="/admin/orders/archive-done"
+  action="{{ studio_path }}/orders/archive-done"
   method="post"
   class="orders-search"
   data-confirm="Archive {{ archivable_in_view }} shipped or cancelled order{{ 's' if archivable_in_view != 1 else '' }} in this view?"
 >
+  {% include "_csrf.html" %}
   {% if active_status %}<input type="hidden" name="status" value="{{ active_status }}">{% endif %}
   {% if active_shipping %}<input type="hidden" name="shipping" value="{{ active_shipping }}">{% endif %}
   {% if search_q %}<input type="hidden" name="q" value="{{ search_q }}">{% endif %}
@@ -115,7 +117,7 @@
     </tr>
     {% endif %}
     <tr>
-      <td data-label="#"><a href="/admin/orders/{{ order.id }}">{{ order.id }}</a></td>
+      <td data-label="#"><a href="{{ studio_path }}/orders/{{ order.id }}">{{ order.id }}</a></td>
       <td data-label="When">{{ order.created_at_display }}</td>
       <td data-label="Customer">{{ order.customer_name }}<br><span class="muted">{{ order.customer_email }}</span></td>
       <td data-label="Ship">{{ order.shipping_label or "—" }}</td>

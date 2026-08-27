@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
@@ -36,6 +36,15 @@ from src.notify import (
 from src.pdf import packing_slip_filename, packing_slip_pdf_bytes
 from src.payments import refund_order_if_paid
 from src.ratelimit import client_ip
+from src.security import (
+    clear_studio_login,
+    issue_csrf_token,
+    mark_studio_login,
+    studio_is_admin,
+    studio_path,
+    studio_url,
+    verify_studio_csrf,
+)
 from src.store import (
     PLACEHOLDER_IMAGE,
     add_product_photos,
@@ -76,9 +85,11 @@ from src.store import (
 from src.uploads import image_thumb_url, save_product_images
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-router = APIRouter(prefix="/admin")
+router = APIRouter(prefix=studio_path(), dependencies=[Depends(verify_studio_csrf)])
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 templates.env.globals["format_money"] = format_money
+templates.env.globals["studio_path"] = studio_path()
+templates.env.globals["csrf_token"] = issue_csrf_token
 templates.env.filters["thumb"] = image_thumb_url
 logger = logging.getLogger(__name__)
 
@@ -122,7 +133,7 @@ def _stock_href(
     if added:
         params["added"] = "1"
     qs = urlencode(params)
-    return "/admin/stock?" + qs if qs else "/admin/stock"
+    return studio_url("/stock", qs)
 
 
 def _stock_filters(
@@ -202,13 +213,17 @@ def admin_password() -> str:
 
 
 def is_admin(request: Request) -> bool:
-    return bool(request.session.get("is_admin"))
+    if studio_is_admin(request.session):
+        return True
+    if request.session.get("is_admin"):
+        clear_studio_login(request.session)
+    return False
 
 
 def require_admin(request: Request) -> RedirectResponse | None:
     if is_admin(request):
         return None
-    return RedirectResponse(url="/admin/login", status_code=303)
+    return RedirectResponse(url=studio_url("/login"), status_code=303)
 
 
 def _ctx(request: Request, extra: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -253,7 +268,7 @@ def _orders_href(
     if sort == "oldest":
         params["sort"] = "oldest"
     qs = urlencode(params)
-    return "/admin/orders?" + qs if qs else "/admin/orders"
+    return studio_url("/orders", qs)
 
 
 def _mail_result(ok: bool) -> str:
@@ -263,10 +278,8 @@ def _mail_result(ok: bool) -> str:
 
 
 def _order_redirect(order_id: int, mail: str | None = None) -> RedirectResponse:
-    url = f"/admin/orders/{order_id}"
-    if mail:
-        url += "?" + urlencode({"mail": mail})
-    return RedirectResponse(url=url, status_code=303)
+    query = urlencode({"mail": mail}) if mail else ""
+    return RedirectResponse(url=studio_url(f"/orders/{order_id}", query), status_code=303)
 
 
 def _order_view_extra(request: Request, order, extra: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -394,7 +407,8 @@ def _orders_list_extra(
 @router.get("/login")
 def login_page(request: Request) -> Any:
     if is_admin(request):
-        return RedirectResponse(url="/admin/orders", status_code=303)
+        return RedirectResponse(url=studio_url("/orders"), status_code=303)
+    issue_csrf_token(request)
     return templates.TemplateResponse(
         request,
         "admin_login.html",
@@ -408,8 +422,8 @@ def login_submit(request: Request, password: str = Form(...)) -> Any:
     given_digest = hashlib.sha256(password.encode("utf-8")).digest()
     expected_digest = hashlib.sha256(expected.encode("utf-8")).digest()
     if expected and hmac.compare_digest(given_digest, expected_digest):
-        request.session["is_admin"] = True
-        return RedirectResponse(url="/admin/orders", status_code=303)
+        mark_studio_login(request.session)
+        return RedirectResponse(url=studio_url("/orders"), status_code=303)
     logger.warning("Failed admin login from %s", client_ip(request))
     record_failed_login(client_ip(request))
     return templates.TemplateResponse(
@@ -427,8 +441,8 @@ def login_submit(request: Request, password: str = Form(...)) -> Any:
 
 @router.post("/logout")
 def logout(request: Request) -> RedirectResponse:
-    request.session.pop("is_admin", None)
-    return RedirectResponse(url="/admin/login", status_code=303)
+    clear_studio_login(request.session)
+    return RedirectResponse(url=studio_url("/login"), status_code=303)
 
 
 @router.get("")
@@ -436,7 +450,7 @@ def admin_home(request: Request) -> RedirectResponse:
     gate = require_admin(request)
     if gate:
         return gate
-    return RedirectResponse(url="/admin/orders", status_code=303)
+    return RedirectResponse(url=studio_url("/orders"), status_code=303)
 
 
 def _want_archived(raw: str | None) -> bool:
@@ -892,7 +906,7 @@ def product_create(
     except ValueError as exc:
         return error_page(str(exc))
 
-    return RedirectResponse(url="/admin/stock?added=1", status_code=303)
+    return RedirectResponse(url=studio_url("/stock", "added=1"), status_code=303)
 
 
 @router.get("/products/{product_id}/edit")
@@ -979,7 +993,7 @@ def product_edit_submit(
     except ValueError as exc:
         return error_page(str(exc))
 
-    return RedirectResponse(url=f"/admin/products/{product_id}/edit", status_code=303)
+    return RedirectResponse(url=studio_url(f"/products/{product_id}/edit"), status_code=303)
 
 
 @router.post("/products/{product_id}/images/{image_id}/cover")
@@ -991,7 +1005,7 @@ def product_image_cover(request: Request, product_id: int, image_id: int) -> Any
         set_product_cover(product_id, image_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return RedirectResponse(url=f"/admin/products/{product_id}/edit", status_code=303)
+    return RedirectResponse(url=studio_url(f"/products/{product_id}/edit"), status_code=303)
 
 
 @router.post("/products/{product_id}/images/{image_id}/delete")
@@ -1003,7 +1017,7 @@ def product_image_delete(request: Request, product_id: int, image_id: int) -> An
         delete_product_photo(product_id, image_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return RedirectResponse(url=f"/admin/products/{product_id}/edit", status_code=303)
+    return RedirectResponse(url=studio_url(f"/products/{product_id}/edit"), status_code=303)
 
 
 @router.post("/stock/{product_id}")
@@ -1092,7 +1106,7 @@ def product_delete(request: Request, product_id: int) -> Any:
             ),
             status_code=400,
         )
-    return RedirectResponse(url="/admin/stock", status_code=303)
+    return RedirectResponse(url=studio_url("/stock"), status_code=303)
 
 
 def _genre_page(
@@ -1148,7 +1162,7 @@ def genre_create(
             form_prefix=code_prefix,
             status_code=400,
         )
-    return RedirectResponse(url="/admin/genres?added=1", status_code=303)
+    return RedirectResponse(url=studio_url("/genres", "added=1"), status_code=303)
 
 
 @router.post("/genres/{genre_id}/edit")
@@ -1167,7 +1181,7 @@ def genre_edit(
         update_genre(genre_id, name=name, code_prefix=code_prefix)
     except ValueError as exc:
         return _genre_page(request, error=str(exc), status_code=400)
-    return RedirectResponse(url="/admin/genres", status_code=303)
+    return RedirectResponse(url=studio_url("/genres"), status_code=303)
 
 
 @router.post("/genres/{genre_id}/delete")
@@ -1192,7 +1206,7 @@ def genre_delete(
         delete_genre(genre_id, move_to_id=move_to_id)
     except ValueError as exc:
         return _genre_page(request, error=str(exc), status_code=400)
-    return RedirectResponse(url="/admin/genres", status_code=303)
+    return RedirectResponse(url=studio_url("/genres"), status_code=303)
 
 
 def _home_copy_page(
@@ -1202,9 +1216,10 @@ def _home_copy_page(
     saved: bool = False,
     form_title: str | None = None,
     form_banner: str | None = None,
+    form_eyebrow: str | None = None,
     status_code: int = 200,
 ) -> Any:
-    title, banner = get_home_copy()
+    title, banner, eyebrow = get_home_copy()
     return templates.TemplateResponse(
         request,
         "admin_home.html",
@@ -1215,6 +1230,7 @@ def _home_copy_page(
                 "saved": saved,
                 "form_title": title if form_title is None else form_title,
                 "form_banner": banner if form_banner is None else form_banner,
+                "form_eyebrow": eyebrow if form_eyebrow is None else form_eyebrow,
             },
         ),
         status_code=status_code,
@@ -1234,21 +1250,23 @@ def home_copy_save(
     request: Request,
     title: str = Form(""),
     banner: str = Form(""),
+    eyebrow: str = Form(""),
 ) -> Any:
     gate = require_admin(request)
     if gate:
         return gate
     try:
-        save_home_copy(title=title, banner=banner)
+        save_home_copy(title=title, banner=banner, eyebrow=eyebrow)
     except ValueError as exc:
         return _home_copy_page(
             request,
             error=str(exc),
             form_title=title,
             form_banner=banner,
+            form_eyebrow=eyebrow,
             status_code=400,
         )
-    return RedirectResponse(url="/admin/home?saved=1", status_code=303)
+    return RedirectResponse(url=studio_url("/home", "saved=1"), status_code=303)
 
 
 

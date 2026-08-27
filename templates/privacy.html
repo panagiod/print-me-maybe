@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+
+{% block title %}Privacy — {{ shop_name }}{% endblock %}
+
+{% block content %}
+<h1 class="page-title">Privacy</h1>
+<p class="hero-subtitle">How Print Me Maybe uses the details you give us when you order.</p>
+
+<section class="prose">
+  <h2>What we collect</h2>
+  <p>
+    At checkout we ask for your name, email, and — for delivery — phone number and address.
+    Order notes are optional (colour, a name to print, a file description).
+    We also keep a signed cart cookie on your device for about seven days so your basket survives a refresh.
+  </p>
+  <h2>Why</h2>
+  <p>
+    We use those details to pack your order, arrange pick up or courier delivery in Cyprus or Greece,
+    and email you a confirmation and a private order link. We do not create customer accounts.
+  </p>
+  <h2>Payments and email</h2>
+  <p>
+    Card payments are handled by <a href="https://stripe.com" rel="noopener noreferrer">Stripe</a>.
+    Card numbers never touch this website. Order emails are sent with Resend from
+    <code>orders@print-me-maybe.com</code>.
+  </p>
+  <h2>How long</h2>
+  <p>
+    We keep order records (including the address and notes you typed) so we can fulfil, refund, and answer questions.
+    Listing photos and the catalog live on this server. We do not sell your details.
+  </p>
+  <h2>Contact</h2>
+  <p>
+    Questions: <a href="https://www.instagram.com/print.me.maybe/" target="_blank" rel="noopener noreferrer">@print.me.maybe</a>
+    or the email on your order confirmation.
+  </p>
+</section>
+{% endblock %}

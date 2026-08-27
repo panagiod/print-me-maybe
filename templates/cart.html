@@ -27,6 +27,7 @@
       <td data-label="Price">{{ line.product.price_display }}</td>
       <td data-label="Qty">
         <form action="/cart/update" method="post" class="qty-form">
+  {% include "_csrf.html" %}
           <input type="hidden" name="product_id" value="{{ line.product.id }}">
           <input type="number" name="quantity" value="{{ line.quantity }}" min="0" max="{{ line.product.stock }}" class="qty-input">
           <button type="submit" class="btn btn-ghost btn-sm">Update</button>
@@ -35,6 +36,7 @@
       <td data-label="Total">{{ line.line_total_display }}</td>
       <td data-label="">
         <form action="/cart/update" method="post">
+  {% include "_csrf.html" %}
           <input type="hidden" name="product_id" value="{{ line.product.id }}">
           <input type="hidden" name="quantity" value="0">
           <button type="submit" class="btn btn-ghost btn-sm">Remove</button>

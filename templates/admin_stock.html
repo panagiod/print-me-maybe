@@ -10,7 +10,8 @@
 <div class="alert alert-error" role="alert">
   {{ error }}
   {% if hide_instead %}
-  <form action="/admin/products/{{ hide_instead.id }}/hide" method="post" class="inline-form">
+  <form action="{{ studio_path }}/products/{{ hide_instead.id }}/hide" method="post" class="inline-form">
+  {% include "_csrf.html" %}
     <button type="submit" class="btn btn-primary btn-sm">Hide {{ hide_instead.name }} from shop</button>
   </form>
   {% endif %}
@@ -21,11 +22,11 @@
 {% endif %}
 
 <p class="admin-order-actions">
-  <a href="/admin/products/new" class="btn btn-primary">Add product</a>
-  <a href="/admin/genres" class="btn btn-ghost">Genres</a>
+  <a href="{{ studio_path }}/products/new" class="btn btn-primary">Add product</a>
+  <a href="{{ studio_path }}/genres" class="btn btn-ghost">Genres</a>
 </p>
 
-<form action="/admin/stock" method="get" class="orders-search">
+<form action="{{ studio_path }}/stock" method="get" class="orders-search">
   {% if active_category %}<input type="hidden" name="category" value="{{ active_category }}">{% endif %}
   {% if active_visibility %}<input type="hidden" name="visibility" value="{{ active_visibility }}">{% endif %}
   <label>
@@ -36,15 +37,15 @@
 </form>
 
 <nav class="category-bar" aria-label="Listing">
-  <a href="/admin/stock{% if search_q %}?q={{ search_q }}{% endif %}" class="category-chip {% if not active_visibility and not active_category %}active{% endif %}">All ({{ catalog_counts.get('all', 0) }})</a>
-  <a href="/admin/stock?visibility=listed{% if search_q %}&q={{ search_q }}{% endif %}" class="category-chip {% if active_visibility == 'listed' %}active{% endif %}">Listed ({{ catalog_counts.get('listed', 0) }})</a>
-  <a href="/admin/stock?visibility=hidden{% if search_q %}&q={{ search_q }}{% endif %}" class="category-chip {% if active_visibility == 'hidden' %}active{% endif %}">Hidden ({{ catalog_counts.get('hidden', 0) }})</a>
+  <a href="{{ studio_path }}/stock{% if search_q %}?q={{ search_q }}{% endif %}" class="category-chip {% if not active_visibility and not active_category %}active{% endif %}">All ({{ catalog_counts.get('all', 0) }})</a>
+  <a href="{{ studio_path }}/stock?visibility=listed{% if search_q %}&q={{ search_q }}{% endif %}" class="category-chip {% if active_visibility == 'listed' %}active{% endif %}">Listed ({{ catalog_counts.get('listed', 0) }})</a>
+  <a href="{{ studio_path }}/stock?visibility=hidden{% if search_q %}&q={{ search_q }}{% endif %}" class="category-chip {% if active_visibility == 'hidden' %}active{% endif %}">Hidden ({{ catalog_counts.get('hidden', 0) }})</a>
 </nav>
 
 <nav class="category-bar" aria-label="Genre">
-  <a href="/admin/stock{% if active_visibility %}?visibility={{ active_visibility }}{% endif %}" class="category-chip {% if not active_category %}active{% endif %}">All genres</a>
+  <a href="{{ studio_path }}/stock{% if active_visibility %}?visibility={{ active_visibility }}{% endif %}" class="category-chip {% if not active_category %}active{% endif %}">All genres</a>
   {% for cat in categories %}
-  <a href="/admin/stock?category={{ cat | urlencode }}{% if active_visibility %}&visibility={{ active_visibility }}{% endif %}{% if search_q %}&q={{ search_q }}{% endif %}" class="category-chip {% if active_category == cat %}active{% endif %}">{{ cat }}</a>
+  <a href="{{ studio_path }}/stock?category={{ cat | urlencode }}{% if active_visibility %}&visibility={{ active_visibility }}{% endif %}{% if search_q %}&q={{ search_q }}{% endif %}" class="category-chip {% if active_category == cat %}active{% endif %}">{{ cat }}</a>
   {% endfor %}
 </nav>
 
