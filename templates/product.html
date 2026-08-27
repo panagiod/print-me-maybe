@@ -11,11 +11,21 @@
 
 <article class="product-detail">
   <div class="product-detail-image">
-    <img src="{{ product.image_url }}" alt="{{ product.name }}" id="gallery-main">
+    <div class="gallery" data-gallery>
+      <div class="gallery-viewport" id="gallery-viewport"{% if product.gallery_urls|length > 1 %} tabindex="0" aria-label="Product photos"{% endif %}>
+        {% for url in product.gallery_urls %}
+        <img src="{{ url }}" alt="{{ product.name }}{% if product.gallery_urls|length > 1 %} photo {{ loop.index }}{% endif %}" class="gallery-slide" data-gallery-slide>
+        {% endfor %}
+      </div>
+      {% if product.gallery_urls|length > 1 %}
+      <button type="button" class="gallery-nav gallery-nav-prev" data-gallery-prev aria-label="Previous photo">‹</button>
+      <button type="button" class="gallery-nav gallery-nav-next" data-gallery-next aria-label="Next photo">›</button>
+      {% endif %}
+    </div>
     {% if product.gallery_urls|length > 1 %}
     <div class="gallery-thumbs" role="list">
       {% for url in product.gallery_urls %}
-      <button type="button" class="gallery-thumb {% if loop.first %}is-active{% endif %}" data-gallery-src="{{ url }}" aria-label="Photo {{ loop.index }}">
+      <button type="button" class="gallery-thumb {% if loop.first %}is-active{% endif %}" data-gallery-index="{{ loop.index0 }}" aria-label="Photo {{ loop.index }}">
         <img src="{{ url | thumb }}" alt="">
       </button>
       {% endfor %}

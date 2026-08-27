@@ -666,6 +666,9 @@ def test_sold_out_product_hides_add_to_cart() -> None:
     assert page.status_code == 200
     assert "Sold out" in page.text
     assert "Add to cart" not in page.text
+    assert "gallery-viewport" in page.text
+    assert 'data-gallery-prev' not in page.text
+    assert "gallery-thumbs" not in page.text
     add = client.post(
         "/cart/add",
         data={"product_id": glasses.id, "quantity": 1},
@@ -1174,6 +1177,11 @@ def test_admin_add_page_and_multiple_photos() -> None:
     shop = client.get(f"/product/{product.slug}")
     assert shop.status_code == 200
     assert "gallery-thumbs" in shop.text
+    assert "gallery-viewport" in shop.text
+    assert shop.text.count("data-gallery-slide") == 2
+    assert 'data-gallery-prev' in shop.text
+    assert 'data-gallery-next' in shop.text
+    assert 'data-gallery-index="1"' in shop.text
     edit = client.get(f"/admin/products/{product.id}/edit")
     assert "Cover" in edit.text
     assert product.gallery[0].thumb_url in edit.text
