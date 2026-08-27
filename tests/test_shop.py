@@ -836,11 +836,21 @@ def test_archive_completed_and_cancelled_orders() -> None:
     assert "Still Open" in inbox.text
     assert "Cancel Done" in inbox.text
     assert "Archive shipped and cancelled in this view (1)" in inbox.text
+    shipped = client.get("/admin/orders?status=shipped")
+    assert "Ship Done" not in shipped.text
+    assert "Cancel Done" not in shipped.text
+    cancelled = client.get("/admin/orders?status=cancelled")
+    assert "Cancel Done" in cancelled.text
+    assert "Ship Done" not in cancelled.text
     stored = get_order(shipped_id)
     assert stored is not None and stored.archived is True
     archive_list = client.get("/admin/orders?archived=1")
     assert "Ship Done" in archive_list.text
     assert "Still Open" not in archive_list.text
+    assert 'aria-label="Order status"' not in archive_list.text
+    leftover_status = client.get("/admin/orders?archived=1&status=cancelled")
+    assert "Ship Done" in leftover_status.text
+    assert "Cancel Done" not in leftover_status.text
     detail = client.get(f"/admin/orders/{shipped_id}")
     assert "Archived" in detail.text
     assert "Restore to inbox" in detail.text
@@ -851,8 +861,11 @@ def test_archive_completed_and_cancelled_orders() -> None:
     assert "Cancel Done" not in inbox.text
     assert "Still Open" in inbox.text
     assert "No orders" not in inbox.text
+    cancelled = client.get("/admin/orders?status=cancelled")
+    assert "Cancel Done" not in cancelled.text
     archive_list = client.get("/admin/orders?archived=1")
     assert "Cancel Done" in archive_list.text
+    assert "Ship Done" in archive_list.text
 
     restored = client.post(f"/admin/orders/{shipped_id}/unarchive", follow_redirects=False)
     assert restored.status_code == 303

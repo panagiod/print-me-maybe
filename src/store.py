@@ -694,7 +694,7 @@ def order_archive_counts(
     status: str | None = None,
     shipping: str | None = None,
 ) -> dict[str, int]:
-    """Inbox vs archived counts for the same search/date/status/shipping filters."""
+    """Inbox vs archived counts for the same search/date/shipping filters (not status)."""
     inbox_where, inbox_params = _order_filter_sql(
         status=status,
         shipping=shipping,
