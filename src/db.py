@@ -121,6 +121,8 @@ def init_schema() -> None:
             conn.execute("ALTER TABLE orders ADD COLUMN shipping_method TEXT NOT NULL DEFAULT ''")
         if "delivery_country" not in columns:
             conn.execute("ALTER TABLE orders ADD COLUMN delivery_country TEXT NOT NULL DEFAULT ''")
+        if "tracking_number" not in columns:
+            conn.execute("ALTER TABLE orders ADD COLUMN tracking_number TEXT NOT NULL DEFAULT ''")
         missing = conn.execute(
             "SELECT id FROM orders WHERE lookup_token IS NULL OR lookup_token = ''"
         ).fetchall()

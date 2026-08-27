@@ -9,7 +9,7 @@ from src.db import get_connection, init_schema
 from src.main import app
 from src.models import CYPRUS_SHIPPING_CENTS, INTERNATIONAL_SHIPPING_CENTS, order_total_cents, shipping_cents
 from src.seed import seed_products
-from src.store import list_all_products
+from src.store import get_order, list_all_products
 
 
 @pytest.fixture(autouse=True)
@@ -245,6 +245,7 @@ def test_admin_orders_and_stock() -> None:
     assert detail.status_code == 200
     assert "In progress" in detail.text
     assert "DM received for custom name" in detail.text
+    assert "Tracking number" in detail.text
     assert "refunds the card through Stripe" in detail.text
     assert "emails the customer" in detail.text
 
@@ -299,6 +300,54 @@ def test_cancel_restocks_and_reopen_deducts() -> None:
     )
     after_reopen = next(p for p in list_all_products() if p.slug == "glasses-case").stock
     assert after_reopen == before - 1
+
+
+def test_shipped_tracking_number_shows_on_customer_page() -> None:
+    init_schema()
+    seed_products()
+
+    client = TestClient(app)
+    products = client.get("/api/products").json()
+    glasses = next(p for p in products if p["slug"] == "glasses-case")
+    client.post("/cart/add", data={"product_id": glasses["id"], "quantity": 1})
+    checkout = client.post(
+        "/checkout",
+        data={
+            "customer_name": "Ship Me",
+            "customer_email": "ship@example.com",
+            "shipping_method": "delivery",
+            "delivery_country": "cyprus",
+            "shipping_address": "12 Engine St",
+        },
+    )
+    order_id = checkout.text.split("#")[1].split("<")[0]
+    token = checkout.text.split('href="/order/')[1].split('"')[0]
+
+    client.post("/admin/login", data={"password": "printmemaybe"})
+    save = client.post(
+        f"/admin/orders/{order_id}",
+        data={
+            "status": "shipped",
+            "notes": "",
+            "tracking_number": "CY123456789CY",
+        },
+        follow_redirects=False,
+    )
+    assert save.status_code == 303
+    order = get_order(int(order_id))
+    assert order is not None
+    assert order.status == "shipped"
+    assert order.tracking_number == "CY123456789CY"
+
+    admin_page = client.get(f"/admin/orders/{order_id}")
+    assert "CY123456789CY" in admin_page.text
+    assert "Shipped" in admin_page.text
+
+    detail = client.get(f"/order/{token}")
+    assert detail.status_code == 200
+    assert "Shipped" in detail.text
+    assert "CY123456789CY" in detail.text
+    assert "Tracking:" in detail.text
 
 
 def test_seed_updates_prices_without_resetting_stock() -> None:

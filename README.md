@@ -382,7 +382,7 @@ Public nav does not advertise `/admin`. Login: `/admin/login` on your domain.
 | Page | What it does |
 |------|----------------|
 | `/admin/orders` | Filter by status; Paid / Unpaid / Refunded; **Send test email** |
-| `/admin/orders/{id}` | Status, notes, cancel (Stripe refund if paid, restock, email customer) / reopen (deduct stock; does not charge again) |
+| `/admin/orders/{id}` | Status, tracking number, notes, cancel (Stripe refund if paid, restock, email customer) / reopen (deduct stock; does not charge again) |
 | `/admin/stock` | Add product; **Edit** name/price/description/category/photo/qty; set stock; **Remove** unused products |
 
 **Remove a product.** Each row on `/admin/stock` has a **Remove** button (`POST /admin/products/{id}/delete`). Deletion is a hard delete from the `products` table. It is **blocked** if that product appears on any past order (foreign key on `order_items`). In that case the studio sees: *This product has been ordered before. Set stock to 0 to hide it from the shop.* Setting stock to 0 still hides the item from the public catalog without deleting history.
@@ -391,11 +391,13 @@ Order statuses: New → In progress → Ready to ship → Shipped, plus Cancelle
 
 **Cancel a paid order** from that order page. The shop refunds the Stripe Checkout payment first; if Stripe rejects the refund, the order stays open and stock is not put back. After a successful refund the payment pill shows **Refunded**, items return to stock, and the customer (and studio inbox) get a cancellation email. Unpaid demo orders skip Stripe and still email the customer. Reopening a cancelled order deducts stock again and does **not** charge the card.
 
+**Tracking number.** On the same order page, paste the courier number in **Tracking number** when you set status to **Shipped**. It is stored on the order, shown on the customer’s `/order/{token}` page, and included in a shipped email. You can add the number later; saving a new tracking number on an already-shipped order emails the customer again. Leave it blank for pick-up.
+
 Uploaded photos are served from `/media/products/...` and stored under `DATA_DIR/product-images`.
 
 ## Order emails
 
-New checkouts and blocked login/checkout floods email **dimitrioupanagiotis@outlook.com**. Checkout still succeeds if mail fails. Cancelling an order from studio admin also emails the customer (refund notice when a card payment was returned).
+New checkouts and blocked login/checkout floods email **dimitrioupanagiotis@outlook.com**. Checkout still succeeds if mail fails. Cancelling an order from studio admin also emails the customer (refund notice when a card payment was returned). Marking an order **Shipped** emails the customer the tracking number when you added one.
 
 ### What you cannot add in Resend → Domains
 

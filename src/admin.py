@@ -23,6 +23,7 @@ from src.notify import (
     mail_domain_unverified_message,
     mail_not_configured_message,
     notify_order_cancelled,
+    notify_order_shipped,
     record_failed_login,
     resend_from_needs_domain,
     send_test_email,
@@ -46,6 +47,7 @@ from src.store import (
     unique_slug,
     update_order_notes,
     update_order_status,
+    update_order_tracking,
     update_product,
 )
 from src.uploads import save_product_image
@@ -211,6 +213,7 @@ def order_update(
     order_id: int,
     status: str = Form(...),
     notes: str = Form(""),
+    tracking_number: str = Form(""),
 ) -> Any:
     gate = require_admin(request)
     if gate:
@@ -248,10 +251,16 @@ def order_update(
     except ValueError as exc:
         return error_page(str(exc))
     update_order_notes(order_id, notes.strip())
+    saved_tracking = update_order_tracking(order_id, tracking_number)
+    updated = get_order(order_id)
     if cancelling:
-        updated = get_order(order_id)
         if updated:
             notify_order_cancelled(updated, refunded=refunded)
+    elif updated and status == "shipped":
+        became_shipped = order.status != "shipped"
+        tracking_changed = saved_tracking != (order.tracking_number or "").strip()
+        if became_shipped or (saved_tracking and tracking_changed):
+            notify_order_shipped(updated)
     return RedirectResponse(url=f"/admin/orders/{order_id}", status_code=303)
 
 
