@@ -114,6 +114,8 @@ def test_add_to_cart_and_checkout_with_shipping() -> None:
             "shipping_method": "delivery",
             "delivery_country": "other",
             "shipping_address": "123 Test St, London",
+            "customer_phone": "+357 99 123456",
+            "customer_notes": "navy, name Eleni",
         },
     )
     assert checkout.status_code == 200
@@ -128,6 +130,13 @@ def test_add_to_cart_and_checkout_with_shipping() -> None:
     assert detail.status_code == 200
     assert glasses["name"] in detail.text
     assert f"€{shipping / 100:.2f}" in detail.text or "Free" in detail.text
+    assert "navy, name Eleni" in detail.text
+    from src.store import get_order
+
+    order = get_order(int(order_id))
+    assert order is not None
+    assert order.customer_notes == "navy, name Eleni"
+    assert order.customer_phone == "+357 99 123456"
 
 
 def test_pickup_checkout_is_free() -> None:
@@ -171,6 +180,7 @@ def test_cyprus_delivery_charges_standard_shipping() -> None:
             "shipping_method": "delivery",
             "delivery_country": "cyprus",
             "shipping_address": "12 Engine St, Nicosia",
+            "customer_phone": "+357 99 123456",
         },
     )
     assert checkout.status_code == 200
@@ -212,6 +222,7 @@ def test_admin_orders_and_stock() -> None:
             "shipping_method": "delivery",
             "delivery_country": "cyprus",
             "shipping_address": "12 Engine St",
+            "customer_phone": "+357 99 123456",
         },
     )
     assert "Thank you" in checkout.text
@@ -228,8 +239,11 @@ def test_admin_orders_and_stock() -> None:
     assert "Ada Lovelace" in orders.text
     assert f">{order_id}<" in orders.text or f"/admin/orders/{order_id}" in orders.text
     assert 'data-label="Customer"' in orders.text
+    assert 'data-label="Ship"' in orders.text
     assert "table-wrap" in orders.text
     assert "Send test email" in orders.text
+    assert "Search orders" in orders.text
+    assert "Pickup" in orders.text
     assert "/etc/eshop.env" in orders.text
     assert "resend.com" in orders.text
     assert "RESEND_API_KEY" in orders.text
@@ -246,8 +260,11 @@ def test_admin_orders_and_stock() -> None:
     assert "In progress" in detail.text
     assert "DM received for custom name" in detail.text
     assert "Tracking number" in detail.text
-    assert "refunds the card through Stripe" in detail.text
-    assert "emails the customer" in detail.text
+    assert "Copy customer link" in detail.text
+    assert "Print packing slip" in detail.text
+    assert "Mark as paid (cash/bank)" in detail.text
+    assert "refunds through Stripe" in detail.text
+    assert "+357 99 123456" in detail.text
 
     stock_page = client.get("/admin/stock")
     assert stock_page.status_code == 200
@@ -292,7 +309,7 @@ def test_cancel_restocks_and_reopen_deducts() -> None:
     cancelled = client.get(f"/admin/orders/{order_id}")
     assert "Cancelled" in cancelled.text
     assert "Unpaid" in cancelled.text
-    assert "Refunded" not in cancelled.text
+    assert 'status-refunded' not in cancelled.text
 
     client.post(
         f"/admin/orders/{order_id}",
@@ -318,6 +335,7 @@ def test_shipped_tracking_number_shows_on_customer_page() -> None:
             "shipping_method": "delivery",
             "delivery_country": "cyprus",
             "shipping_address": "12 Engine St",
+            "customer_phone": "+357 99 123456",
         },
     )
     order_id = checkout.text.split("#")[1].split("<")[0]
@@ -350,7 +368,7 @@ def test_shipped_tracking_number_shows_on_customer_page() -> None:
     assert "Tracking:" in detail.text
 
 
-def test_seed_updates_prices_without_resetting_stock() -> None:
+def test_seed_keeps_admin_price_and_stock() -> None:
     init_schema()
     seed_products()
     with get_connection() as conn:
@@ -359,7 +377,7 @@ def test_seed_updates_prices_without_resetting_stock() -> None:
         )
     seed_products()
     product = next(p for p in list_all_products() if p.slug == "custom-cake-topper")
-    assert product.price_cents == 1500
+    assert product.price_cents == 1
     assert product.stock == 7
 
 
@@ -527,3 +545,310 @@ def test_admin_add_product_rejects_bad_price() -> None:
     assert bad.status_code == 400
     assert "price" in bad.text.lower()
     assert all(p.slug != "broken-price" for p in list_all_products())
+
+
+def test_delivery_checkout_requires_phone() -> None:
+    init_schema()
+    seed_products()
+    client = TestClient(app)
+    products = client.get("/api/products").json()
+    glasses = next(p for p in products if p["slug"] == "glasses-case")
+    client.post("/cart/add", data={"product_id": glasses["id"], "quantity": 1})
+    page = client.get("/checkout")
+    assert 'name="customer_notes"' in page.text
+    assert 'name="customer_phone"' in page.text
+    blocked = client.post(
+        "/checkout",
+        data={
+            "customer_name": "No Phone",
+            "customer_email": "nophone@example.com",
+            "shipping_method": "delivery",
+            "delivery_country": "cyprus",
+            "shipping_address": "12 Engine St",
+        },
+    )
+    assert blocked.status_code == 400
+    assert "phone" in blocked.text.lower()
+
+
+def test_sold_out_product_hides_add_to_cart() -> None:
+    init_schema()
+    seed_products()
+    glasses = next(p for p in list_all_products() if p.slug == "glasses-case")
+    from src.store import set_product_stock
+
+    set_product_stock(glasses.id, 0)
+    client = TestClient(app)
+    page = client.get(f"/product/{glasses.slug}")
+    assert page.status_code == 200
+    assert "Sold out" in page.text
+    assert "Add to cart" not in page.text
+    add = client.post(
+        "/cart/add",
+        data={"product_id": glasses.id, "quantity": 1},
+        follow_redirects=False,
+    )
+    assert add.status_code == 303
+    assert "sold_out=1" in add.headers["location"]
+    shown = client.get(add.headers["location"])
+    assert "cannot be added to the cart" in shown.text
+
+
+def test_order_list_search_and_shipping_filter() -> None:
+    init_schema()
+    seed_products()
+    client = TestClient(app)
+    products = client.get("/api/products").json()
+    glasses = next(p for p in products if p["slug"] == "glasses-case")
+    client.post("/cart/add", data={"product_id": glasses["id"], "quantity": 1})
+    client.post(
+        "/checkout",
+        data={
+            "customer_name": "Eleni Search",
+            "customer_email": "eleni@example.com",
+            "shipping_method": "pickup",
+        },
+    )
+    client.post("/cart/add", data={"product_id": glasses["id"], "quantity": 1})
+    client.post(
+        "/checkout",
+        data={
+            "customer_name": "Nicos Courier",
+            "customer_email": "nicos@example.com",
+            "shipping_method": "delivery",
+            "delivery_country": "cyprus",
+            "shipping_address": "1 Ledra",
+            "customer_phone": "+357 99 111111",
+        },
+    )
+    client.post("/admin/login", data={"password": "printmemaybe"})
+    search = client.get("/admin/orders?q=Eleni")
+    assert "Eleni Search" in search.text
+    assert "Nicos Courier" not in search.text
+    pickup = client.get("/admin/orders?shipping=pickup")
+    assert "Eleni Search" in pickup.text
+    assert "Nicos Courier" not in pickup.text
+    cyprus = client.get("/admin/orders?shipping=cyprus")
+    assert "Nicos Courier" in cyprus.text
+    assert "Eleni Search" not in cyprus.text
+
+
+def test_cannot_reopen_refunded_order() -> None:
+    init_schema()
+    seed_products()
+    client = TestClient(app)
+    products = client.get("/api/products").json()
+    glasses = next(p for p in products if p["slug"] == "glasses-case")
+    client.post("/cart/add", data={"product_id": glasses["id"], "quantity": 1})
+    checkout = client.post(
+        "/checkout",
+        data={
+            "customer_name": "Refunded",
+            "customer_email": "refunded@example.com",
+            "shipping_method": "pickup",
+        },
+    )
+    order_id = int(checkout.text.split("#")[1].split("<")[0])
+    from src.store import set_payment_status, update_order_status
+
+    update_order_status(order_id, "cancelled")
+    set_payment_status(order_id, "refunded")
+    client.post("/admin/login", data={"password": "printmemaybe"})
+    reopen = client.post(
+        f"/admin/orders/{order_id}",
+        data={"status": "in_progress", "notes": ""},
+    )
+    assert reopen.status_code == 400
+    assert "refunded" in reopen.text.lower()
+    order = get_order(order_id)
+    assert order is not None
+    assert order.status == "cancelled"
+
+
+def test_rename_does_not_change_past_order_names() -> None:
+    init_schema()
+    seed_products()
+    client = TestClient(app)
+    products = client.get("/api/products").json()
+    glasses = next(p for p in products if p["slug"] == "glasses-case")
+    original_name = glasses["name"]
+    client.post("/cart/add", data={"product_id": glasses["id"], "quantity": 1})
+    checkout = client.post(
+        "/checkout",
+        data={
+            "customer_name": "Name Snapshot",
+            "customer_email": "snap@example.com",
+            "shipping_method": "pickup",
+        },
+    )
+    order_id = int(checkout.text.split("#")[1].split("<")[0])
+    client.post("/admin/login", data={"password": "printmemaybe"})
+    product = next(p for p in list_all_products() if p.id == glasses["id"])
+    client.post(
+        f"/admin/products/{product.id}/edit",
+        data={
+            "name": "Renamed Glasses",
+            "description": product.description,
+            "price": "4.00",
+            "category": product.category,
+            "stock": str(product.stock),
+        },
+    )
+    order = get_order(order_id)
+    assert order is not None
+    assert order.items[0].product_name == original_name
+    admin_page = client.get(f"/admin/orders/{order_id}")
+    assert original_name in admin_page.text
+    assert "Renamed Glasses" not in admin_page.text
+
+
+def test_mark_paid_cash_and_cancel_skips_stripe(monkeypatch) -> None:
+    init_schema()
+    seed_products()
+    client = TestClient(app)
+    products = client.get("/api/products").json()
+    glasses = next(p for p in products if p["slug"] == "glasses-case")
+    client.post("/cart/add", data={"product_id": glasses["id"], "quantity": 1})
+    checkout = client.post(
+        "/checkout",
+        data={
+            "customer_name": "Cash Buyer",
+            "customer_email": "cash@example.com",
+            "shipping_method": "pickup",
+        },
+    )
+    order_id = int(checkout.text.split("#")[1].split("<")[0])
+    stripe_calls: list[str] = []
+
+    def boom(*args, **kwargs):
+        stripe_calls.append("called")
+        raise AssertionError("Stripe should not be called for cash payments")
+
+    monkeypatch.setattr("src.payments.urllib.request.urlopen", boom)
+    client.post("/admin/login", data={"password": "printmemaybe"})
+    marked = client.post(
+        f"/admin/orders/{order_id}/mark-paid",
+        follow_redirects=False,
+    )
+    assert marked.status_code == 303
+    order = get_order(order_id)
+    assert order is not None
+    assert order.paid
+    assert order.payment_method == "cash"
+    cancelled = client.post(
+        f"/admin/orders/{order_id}",
+        data={"status": "cancelled", "notes": ""},
+        follow_redirects=False,
+    )
+    assert cancelled.status_code == 303
+    assert stripe_calls == []
+    order = get_order(order_id)
+    assert order is not None
+    assert order.status == "cancelled"
+    assert order.payment_status == "paid"
+
+
+def test_ready_status_emails_customer_once(monkeypatch) -> None:
+    init_schema()
+    seed_products()
+    mailed: list[int] = []
+
+    def fake_ready(order):
+        mailed.append(order.id)
+        return True
+
+    monkeypatch.setattr("src.admin.notify_order_ready", fake_ready)
+    client = TestClient(app)
+    products = client.get("/api/products").json()
+    glasses = next(p for p in products if p["slug"] == "glasses-case")
+    client.post("/cart/add", data={"product_id": glasses["id"], "quantity": 1})
+    checkout = client.post(
+        "/checkout",
+        data={
+            "customer_name": "Ready Pat",
+            "customer_email": "ready@example.com",
+            "shipping_method": "pickup",
+        },
+    )
+    order_id = int(checkout.text.split("#")[1].split("<")[0])
+    client.post("/admin/login", data={"password": "printmemaybe"})
+    first = client.post(
+        f"/admin/orders/{order_id}",
+        data={"status": "ready", "notes": ""},
+        follow_redirects=False,
+    )
+    assert first.status_code == 303
+    assert "mail=sent" in first.headers["location"]
+    second = client.post(
+        f"/admin/orders/{order_id}",
+        data={"status": "ready", "notes": ""},
+        follow_redirects=False,
+    )
+    assert second.status_code == 303
+    assert "mail=" not in second.headers["location"]
+    assert mailed == [order_id]
+
+
+def test_delivery_shipped_without_tracking_needs_number() -> None:
+    init_schema()
+    seed_products()
+    client = TestClient(app)
+    products = client.get("/api/products").json()
+    glasses = next(p for p in products if p["slug"] == "glasses-case")
+    client.post("/cart/add", data={"product_id": glasses["id"], "quantity": 1})
+    checkout = client.post(
+        "/checkout",
+        data={
+            "customer_name": "Need Track",
+            "customer_email": "track@example.com",
+            "shipping_method": "delivery",
+            "delivery_country": "cyprus",
+            "shipping_address": "12 Engine St",
+            "customer_phone": "+357 99 123456",
+        },
+    )
+    order_id = int(checkout.text.split("#")[1].split("<")[0])
+    client.post("/admin/login", data={"password": "printmemaybe"})
+    save = client.post(
+        f"/admin/orders/{order_id}",
+        data={"status": "shipped", "notes": "", "tracking_number": ""},
+        follow_redirects=False,
+    )
+    assert save.status_code == 303
+    assert "mail=need_tracking" in save.headers["location"]
+    page = client.get(save.headers["location"])
+    assert "Add a tracking number" in page.text
+
+
+def test_packing_slip_and_nicosia_time() -> None:
+    from src.models import format_local_time
+
+    assert format_local_time("2026-08-26 10:00:00") == "2026-08-26 13:00"
+    init_schema()
+    seed_products()
+    client = TestClient(app)
+    products = client.get("/api/products").json()
+    glasses = next(p for p in products if p["slug"] == "glasses-case")
+    client.post("/cart/add", data={"product_id": glasses["id"], "quantity": 1})
+    checkout = client.post(
+        "/checkout",
+        data={
+            "customer_name": "Print Me",
+            "customer_email": "print@example.com",
+            "shipping_method": "pickup",
+        },
+    )
+    order_id = int(checkout.text.split("#")[1].split("<")[0])
+    client.post("/admin/login", data={"password": "printmemaybe"})
+    slip = client.get(f"/admin/orders/{order_id}/print")
+    assert slip.status_code == 200
+    assert "Packing slip" in slip.text
+    assert "Print Me" in slip.text
+    from src.store import set_product_stock
+
+    set_product_stock(glasses["id"], 0)
+    stock = client.get("/admin/stock")
+    assert "stock-zero" in stock.text
+    assert 'data-confirm="Remove' in stock.text
+    assert "/static/js/admin.js" in stock.text
+

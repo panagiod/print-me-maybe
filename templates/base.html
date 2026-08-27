@@ -40,6 +40,10 @@
     {% block content %}{% endblock %}
   </main>
 
+  {% if is_admin %}
+  <script src="/static/js/admin.js" defer></script>
+  {% endif %}
+
   <footer class="site-footer">
     <div class="container footer-inner">
       <div class="footer-brands">

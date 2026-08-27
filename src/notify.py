@@ -139,6 +139,7 @@ def order_email_body(order: Order) -> str:
         "Customer",
         f"Name: {order.customer_name}",
         f"Email: {order.customer_email}",
+        f"Phone: {order.customer_phone or '—'}",
         f"Method: {method}",
         "Address:",
         order.shipping_address,
@@ -163,6 +164,12 @@ def order_email_body(order: Order) -> str:
             "",
             pay_line,
             "",
+        ]
+    )
+    if (order.customer_notes or "").strip():
+        lines.extend(["Customer notes:", order.customer_notes.strip(), ""])
+    lines.extend(
+        [
             "Open in studio:",
             f"{shop_url()}/admin/orders/{order.id}",
             "",
@@ -201,14 +208,18 @@ def customer_email_body(order: Order) -> str:
         if order.paid
         else "No payment was collected at checkout. For custom names, photos, or files, reply or DM Instagram."
     )
-    return "\n".join(
-        [
+    bits = [
             f"Thank you for your {shop_name()} order #{order.id}.",
             "",
             f"Method: {method}",
             f"Shipping: {shipping}",
             f"Total: {order.total_display}",
             "",
+    ]
+    if (order.customer_notes or "").strip():
+        bits.extend(["Your notes:", order.customer_notes.strip(), ""])
+    bits.extend(
+        [
             "View your order:",
             link,
             "",
@@ -216,6 +227,7 @@ def customer_email_body(order: Order) -> str:
             "",
         ]
     )
+    return "\n".join(bits)
 
 
 def build_customer_email(order: Order) -> EmailMessage:
@@ -433,6 +445,8 @@ def cancellation_email_body(order: Order, *, refunded: bool) -> str:
             f"The card payment of {order.total_display} has been refunded. "
             "It can take a few business days to appear on your statement."
         )
+    elif order.payment_method == "cash" or (order.paid and order.payment_method == "cash"):
+        money = "If you paid in cash or by bank transfer, we will refund that in person."
     else:
         money = "No payment was collected for this order."
     return "\n".join(
@@ -455,6 +469,8 @@ def cancellation_email_body(order: Order, *, refunded: bool) -> str:
 def _studio_cancellation_body(order: Order, *, refunded: bool) -> str:
     if refunded:
         money = "The card payment was refunded through Stripe."
+    elif order.payment_method == "cash":
+        money = "This was marked paid in cash/bank — refund in person if needed."
     elif order.paid:
         money = "Payment still shows as paid — check Stripe Dashboard."
     else:
@@ -499,6 +515,8 @@ def notify_order_cancelled(order: Order, *, refunded: bool) -> bool:
 
 
 def shipped_email_subject(order: Order) -> str:
+    if order.shipping_method == "pickup":
+        return f"{shop_name()} order #{order.id} ready for pickup"
     return f"{shop_name()} order #{order.id} shipped"
 
 
@@ -508,16 +526,18 @@ def shipped_email_body(order: Order) -> str:
         if order.lookup_token
         else shop_url()
     )
-    tracking = (order.tracking_number or "").strip()
-    if tracking:
-        track_lines = ["Tracking number:", tracking, ""]
+    if order.shipping_method == "pickup":
+        intro = f"Your {shop_name()} order #{order.id} is ready to collect at the studio."
+        extra = ["Bring this email or your order number.", ""]
     else:
-        track_lines = ["A tracking number was not added yet.", ""]
+        intro = f"Your {shop_name()} order #{order.id} has shipped."
+        tracking = (order.tracking_number or "").strip()
+        extra = ["Tracking number:", tracking, ""] if tracking else ["", ""]
     return "\n".join(
         [
-            f"Your {shop_name()} order #{order.id} has shipped.",
+            intro,
             "",
-            *track_lines,
+            *extra,
             "View your order:",
             link,
             "",
@@ -527,8 +547,18 @@ def shipped_email_body(order: Order) -> str:
     )
 
 
+def should_email_shipped(order: Order) -> bool:
+    """Delivery shipped emails wait until a tracking number exists."""
+    if order.shipping_method == "pickup":
+        return True
+    return bool((order.tracking_number or "").strip())
+
+
 def notify_order_shipped(order: Order) -> bool:
     """Email the customer when an order is marked shipped. Never raises."""
+    if not should_email_shipped(order):
+        logger.info("Order #%s shipped without tracking; customer email deferred", order.id)
+        return False
     if not mail_configured():
         logger.warning(
             "Order #%s shipped; email skipped (set RESEND_API_KEY in /etc/eshop.env).",
@@ -545,6 +575,59 @@ def notify_order_shipped(order: Order) -> bool:
         logger.exception("Could not email customer about shipped order #%s", order.id)
         return False
     logger.info("Shipped notice for order #%s emailed to %s", order.id, order.customer_email)
+    return True
+
+
+def ready_email_subject(order: Order) -> str:
+    if order.shipping_method == "pickup":
+        return f"{shop_name()} order #{order.id} ready for pickup"
+    return f"{shop_name()} order #{order.id} is packed"
+
+
+def ready_email_body(order: Order) -> str:
+    link = (
+        f"{shop_url()}/order/{order.lookup_token}"
+        if order.lookup_token
+        else shop_url()
+    )
+    if order.shipping_method == "pickup":
+        intro = f"Your {shop_name()} order #{order.id} is ready to collect at the studio."
+    else:
+        intro = (
+            f"Your {shop_name()} order #{order.id} is packed and ready to hand to the courier. "
+            "You will get another email with tracking when it ships."
+        )
+    return "\n".join(
+        [
+            intro,
+            "",
+            "View your order:",
+            link,
+            "",
+            "Questions? Reply to this email.",
+            "",
+        ]
+    )
+
+
+def notify_order_ready(order: Order) -> bool:
+    """Email the customer when status becomes Ready. Never raises."""
+    if not mail_configured():
+        logger.warning(
+            "Order #%s ready; email skipped (set RESEND_API_KEY in /etc/eshop.env).",
+            order.id,
+        )
+        return False
+    try:
+        _deliver_customer_message(
+            to=order.customer_email,
+            subject=ready_email_subject(order),
+            body=ready_email_body(order),
+        )
+    except Exception:
+        logger.exception("Could not email customer about ready order #%s", order.id)
+        return False
+    logger.info("Ready notice for order #%s emailed to %s", order.id, order.customer_email)
     return True
 
 

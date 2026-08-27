@@ -21,7 +21,9 @@ from src.models import (
     PICKUP_ADDRESS_LABEL,
     SHIPPING_METHODS,
     Order,
+    clean_phone,
     format_money,
+    phone_has_enough_digits,
     shipping_cents,
 )
 from src.ratelimit import RateLimitMiddleware
@@ -188,7 +190,7 @@ def home(request: Request, category: str | None = None) -> Any:
 
 
 @app.get("/product/{slug}", response_class=HTMLResponse)
-def product_detail(request: Request, slug: str) -> Any:
+def product_detail(request: Request, slug: str, sold_out: str | None = None) -> Any:
     product = get_product_by_slug(slug)
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
@@ -201,6 +203,7 @@ def product_detail(request: Request, slug: str) -> Any:
             "product": product,
             "cart_count": cart_count(cart),
             "shop_name": shop_name(),
+            "sold_out_error": bool(sold_out) and product.stock <= 0,
         },
     )
 
@@ -209,6 +212,8 @@ def product_detail(request: Request, slug: str) -> Any:
 def cart_add(request: Request, product_id: int = Form(...), quantity: int = Form(1)) -> RedirectResponse:
     product = get_product(product_id)
     if not product or product.stock <= 0:
+        if product:
+            return RedirectResponse(url=f"/product/{product.slug}?sold_out=1", status_code=303)
         return RedirectResponse(url="/", status_code=303)
     cart = get_cart(request)
     key = str(product_id)
@@ -282,6 +287,8 @@ def checkout_submit(
     shipping_method: str = Form(...),
     delivery_country: str = Form("cyprus"),
     shipping_address: str = Form(""),
+    customer_notes: str = Form(""),
+    customer_phone: str = Form(""),
 ) -> Any:
     cart = get_cart(request)
     lines = build_cart_lines(cart)
@@ -291,6 +298,8 @@ def checkout_submit(
     name = customer_name.strip()
     email = customer_email.strip()
     address = shipping_address.strip()
+    notes = (customer_notes or "").strip()[:1000]
+    phone = clean_phone(customer_phone)
 
     checkout_ctx = {
         "lines": lines,
@@ -301,6 +310,8 @@ def checkout_submit(
         "form_customer_name": name,
         "form_customer_email": email,
         "form_shipping_address": address,
+        "form_customer_notes": notes,
+        "form_customer_phone": phone,
     }
 
     try:
@@ -308,6 +319,8 @@ def checkout_submit(
         country = normalize_delivery_country(delivery_country) if method == "delivery" else None
         if method == "delivery" and not address:
             raise ValueError("Enter a delivery address")
+        if method == "delivery" and not phone_has_enough_digits(phone):
+            raise ValueError("Enter a phone number for delivery")
         if method == "pickup":
             address = PICKUP_ADDRESS_LABEL
         totals = checkout_totals(lines, shipping_method=method, delivery_country=country)
@@ -338,6 +351,8 @@ def checkout_submit(
                 delivery_country=country or "",
                 shipping_cents=totals["shipping_cents"],
                 origin=str(request.base_url).rstrip("/"),
+                customer_notes=notes,
+                customer_phone=phone,
             )
             save_pending_checkout(
                 session_id=session_id,
@@ -349,6 +364,8 @@ def checkout_submit(
                 delivery_country=country or "",
                 shipping_cents=totals["shipping_cents"],
                 total_cents=totals["total_cents"],
+                customer_notes=notes,
+                customer_phone=phone,
             )
         except Exception as exc:
             return templates.TemplateResponse(
@@ -374,6 +391,8 @@ def checkout_submit(
             shipping_cents=totals["shipping_cents"],
             shipping_method=method,
             delivery_country=country or "",
+            customer_notes=notes,
+            customer_phone=phone,
         )
     except ValueError as exc:
         return templates.TemplateResponse(
@@ -418,6 +437,7 @@ def pay_success(request: Request, session_id: str = "") -> Any:
         order = get_order(existing)
         if not order:
             raise HTTPException(status_code=404, detail="Order not found")
+        save_cart(request, {})
         return _paid_complete_page(request, order)
 
     try:

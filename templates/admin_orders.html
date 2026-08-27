@@ -20,10 +20,30 @@
   <button type="submit" class="btn btn-ghost">Send test email</button>
 </form>
 
+<form action="/admin/orders" method="get" class="orders-search">
+  {% if active_status %}<input type="hidden" name="status" value="{{ active_status }}">{% endif %}
+  {% if active_shipping %}<input type="hidden" name="shipping" value="{{ active_shipping }}">{% endif %}
+  <label>
+    Search orders
+    <input type="search" name="q" value="{{ search_q }}" placeholder="Number, name, email, or tracking">
+  </label>
+  <button type="submit" class="btn btn-ghost">Search</button>
+  {% if search_q %}
+  <a href="{{ clear_search_href }}" class="btn btn-ghost">Clear</a>
+  {% endif %}
+</form>
+
 <nav class="category-bar" aria-label="Order status">
-  <a href="/admin/orders" class="category-chip {% if not active_status %}active{% endif %}">All ({{ counts.get('all', 0) }})</a>
+  <a href="{{ all_href }}" class="category-chip {% if not active_status %}active{% endif %}">All ({{ counts.get('all', 0) }})</a>
   {% for key in statuses %}
-  <a href="/admin/orders?status={{ key }}" class="category-chip {% if active_status == key %}active{% endif %}">{{ status_labels[key] }} ({{ counts.get(key, 0) }})</a>
+  <a href="{{ status_hrefs[key] }}" class="category-chip {% if active_status == key %}active{% endif %}">{{ status_labels[key] }} ({{ counts.get(key, 0) }})</a>
+  {% endfor %}
+</nav>
+
+<nav class="category-bar" aria-label="Shipping method">
+  <a href="{{ shipping_all_href }}" class="category-chip {% if not active_shipping %}active{% endif %}">All methods ({{ shipping_counts.get('all', 0) }})</a>
+  {% for key in shipping_filters %}
+  <a href="{{ shipping_hrefs[key] }}" class="category-chip {% if active_shipping == key %}active{% endif %}">{{ shipping_labels[key] }} ({{ shipping_counts.get(key, 0) }})</a>
   {% endfor %}
 </nav>
 
@@ -35,6 +55,8 @@
       <th>#</th>
       <th>When</th>
       <th>Customer</th>
+      <th>Ship</th>
+      <th>Tracking</th>
       <th>Total</th>
       <th>Pay</th>
       <th>Status</th>
@@ -44,10 +66,12 @@
     {% for order in orders %}
     <tr>
       <td data-label="#"><a href="/admin/orders/{{ order.id }}">{{ order.id }}</a></td>
-      <td data-label="When">{{ order.created_at }}</td>
+      <td data-label="When">{{ order.created_at_display }}</td>
       <td data-label="Customer">{{ order.customer_name }}<br><span class="muted">{{ order.customer_email }}</span></td>
+      <td data-label="Ship">{{ order.shipping_label or "—" }}</td>
+      <td data-label="Tracking">{{ order.tracking_number or "—" }}</td>
       <td data-label="Total">{{ order.total_display }}</td>
-      <td data-label="Pay"><span class="status-pill status-{{ order.payment_status }}">{{ order.payment_label }}</span></td>
+      <td data-label="Pay"><span class="status-pill status-{{ order.payment_status }}">{{ order.payment_label }}{% if order.payment_method == "cash" %} (cash){% endif %}</span></td>
       <td data-label="Status"><span class="status-pill status-{{ order.status }}">{{ order.status_label }}</span></td>
     </tr>
     {% endfor %}

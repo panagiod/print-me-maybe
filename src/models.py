@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any
+from zoneinfo import ZoneInfo
+
+STUDIO_TZ = ZoneInfo(os.environ.get("SHOP_TIMEZONE", "Europe/Nicosia"))
 
 
 ORDER_STATUSES = ("new", "in_progress", "ready", "shipped", "cancelled")
@@ -41,6 +46,37 @@ def shipping_method_label(shipping_method: str, delivery_country: str | None = N
 def format_money(cents: int) -> str:
     """Render integer cents as a euro string for templates."""
     return f"€{cents / 100:.2f}"
+
+
+def clean_phone(raw: str) -> str:
+    return " ".join((raw or "").split())[:40]
+
+
+def phone_has_enough_digits(raw: str, minimum: int = 8) -> bool:
+    digits = "".join(ch for ch in raw if ch.isdigit())
+    return len(digits) >= minimum
+
+
+def format_local_time(raw: str) -> str:
+    """Show UTC SQLite timestamps in the studio timezone (Europe/Nicosia)."""
+    text = (raw or "").strip()
+    if not text:
+        return ""
+    parsed: datetime | None = None
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+        try:
+            parsed = datetime.strptime(text, fmt)
+            break
+        except ValueError:
+            continue
+    if parsed is None:
+        return text
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    local = parsed.astimezone(STUDIO_TZ)
+    if local.hour == 0 and local.minute == 0 and len(text) == 10:
+        return local.strftime("%Y-%m-%d")
+    return local.strftime("%Y-%m-%d %H:%M")
 
 
 def shipping_cents(shipping_method: str, delivery_country: str | None = None) -> int:
@@ -139,10 +175,27 @@ class Order:
     shipping_method: str = ""
     delivery_country: str = ""
     tracking_number: str = ""
+    customer_notes: str = ""
+    customer_phone: str = ""
+    payment_method: str = ""
 
     @property
     def paid(self) -> bool:
         return self.payment_status == "paid"
+
+    @property
+    def card_paid(self) -> bool:
+        return self.paid and self.payment_method != "cash"
+
+    @property
+    def created_at_display(self) -> str:
+        return format_local_time(self.created_at)
+
+    @property
+    def customer_order_path(self) -> str:
+        if self.lookup_token:
+            return f"/order/{self.lookup_token}"
+        return ""
 
     @property
     def payment_label(self) -> str:

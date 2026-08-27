@@ -59,7 +59,7 @@
   </thead>
   <tbody>
     {% for product in products %}
-    <tr>
+    <tr class="{% if product.stock <= 0 %}stock-zero{% elif product.stock <= 2 %}stock-low{% endif %}">
       <td data-label="Product">{{ product.name }}</td>
       <td data-label="Line">{{ product.category }}</td>
       <td data-label="Price">{{ product.price_display }}</td>
@@ -71,7 +71,7 @@
       </td>
       <td data-label="">
         <a href="/admin/products/{{ product.id }}/edit" class="btn btn-ghost btn-sm">Edit</a>
-        <form action="/admin/products/{{ product.id }}/delete" method="post" class="delete-form">
+        <form action="/admin/products/{{ product.id }}/delete" method="post" class="delete-form" data-confirm="Remove {{ product.name }}?">
           <button type="submit" class="btn btn-ghost btn-sm">Remove</button>
         </form>
       </td>

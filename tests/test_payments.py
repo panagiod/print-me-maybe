@@ -37,6 +37,7 @@ def test_checkout_without_stripe_still_places_order(tmp_path, monkeypatch) -> No
             "shipping_method": "delivery",
             "delivery_country": "cyprus",
             "shipping_address": "12 Engine St",
+            "customer_phone": "+357 99 123456",
         },
     )
     assert result.status_code == 200
@@ -80,6 +81,7 @@ def test_checkout_with_stripe_redirects(tmp_path, monkeypatch) -> None:
             "shipping_method": "delivery",
             "delivery_country": "cyprus",
             "shipping_address": "12 Engine St",
+            "customer_phone": "+357 99 123456",
         },
         follow_redirects=False,
     )
@@ -500,4 +502,74 @@ def test_admin_cancel_keeps_paid_order_if_refund_fails(tmp_path, monkeypatch) ->
     assert order.status == "new"
     assert order.payment_status == "paid"
     assert get_product(glasses["id"]).stock == before - 1
+
+
+def test_refund_order_if_paid_skips_cash_and_already_refunded() -> None:
+    from src.payments import refund_order_if_paid
+
+    assert refund_order_if_paid(payment_status="refunded", session_id="cs_x") is False
+    assert refund_order_if_paid(payment_status="paid", session_id="cs_x", payment_method="cash") is False
+    assert refund_order_if_paid(payment_status="unpaid", session_id="cs_x") is False
+
+
+def test_pay_success_clears_cart_after_webhook(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_dummy")
+    monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", "whsec_test")
+    client = _client(monkeypatch, tmp_path)
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_dummy")
+    monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", "whsec_test")
+    products = client.get("/api/products").json()
+    glasses = next(p for p in products if p["slug"] == "glasses-case")
+    from src.models import CartLine
+    from src.store import get_product, save_pending_checkout
+
+    add = client.post("/cart/add", data={"product_id": glasses["id"], "quantity": 1})
+    assert add.status_code in {200, 303}
+    cart = client.get("/cart")
+    assert glasses["name"] in cart.text
+
+    product = get_product(glasses["id"])
+    assert product
+    save_pending_checkout(
+        session_id="cs_test_cartclear",
+        lines=[CartLine(product=product, quantity=1)],
+        customer_name="Webhook User",
+        customer_email="web@example.com",
+        shipping_address="Pick up at studio",
+        shipping_method="pickup",
+        delivery_country="",
+        shipping_cents=0,
+        total_cents=400,
+        customer_notes="leave at door",
+        customer_phone="+357 99 000000",
+    )
+    event = {
+        "type": "checkout.session.completed",
+        "data": {
+            "object": {
+                "id": "cs_test_cartclear",
+                "payment_status": "paid",
+                "amount_total": 400,
+                "payment_intent": "pi_test_ok",
+                "metadata": {},
+            }
+        },
+    }
+    payload = json.dumps(event).encode()
+    webhook = client.post(
+        "/webhooks/stripe",
+        content=payload,
+        headers={"stripe-signature": _stripe_signature(payload, "whsec_test")},
+    )
+    assert webhook.status_code == 200
+    success = client.get("/pay/success?session_id=cs_test_cartclear")
+    assert success.status_code == 200
+    empty = client.get("/cart")
+    assert glasses["name"] not in empty.text
+    from src.store import get_order
+
+    order = get_order(1)
+    assert order is not None
+    assert order.customer_notes == "leave at door"
+    assert order.customer_phone == "+357 99 000000"
 

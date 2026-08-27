@@ -5,6 +5,7 @@
   const deliveryFields = document.getElementById("delivery-fields");
   const deliveryCountry = document.getElementById("delivery-country");
   const shippingAddress = document.getElementById("shipping-address");
+  const customerPhone = document.getElementById("customer-phone");
   const shippingDisplay = document.getElementById("shipping-display");
   const totalDisplay = document.getElementById("total-display");
   const subtotalCents = Number(form.dataset.subtotalCents || 0);
@@ -33,6 +34,9 @@
     }
     if (shippingAddress) {
       shippingAddress.required = isDelivery;
+    }
+    if (customerPhone) {
+      customerPhone.required = isDelivery;
     }
     const ship = shippingCents();
     if (shippingDisplay) {

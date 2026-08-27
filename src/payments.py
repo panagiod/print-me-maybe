@@ -82,6 +82,8 @@ def create_checkout_session(
     delivery_country: str,
     shipping_cents: int,
     origin: str,
+    customer_notes: str = "",
+    customer_phone: str = "",
 ) -> tuple[str, str]:
     """Return (hosted Checkout URL, session id). Amounts are in EUR cents."""
     base = origin.rstrip("/") or shop_url()
@@ -98,6 +100,8 @@ def create_checkout_session(
         "metadata[shipping_cents]": str(shipping_cents),
         "metadata[total_cents]": str(total_cents),
         "metadata[cart]": cart_snapshot(lines)[:500],
+        "metadata[customer_notes]": (customer_notes or "")[:500],
+        "metadata[customer_phone]": (customer_phone or "")[:40],
     }
     for index, line in enumerate(lines):
         payload[f"line_items[{index}][quantity]"] = str(line.quantity)
@@ -204,15 +208,22 @@ def refund_payment(session: dict) -> None:
         raise
 
 
-def refund_order_if_paid(*, payment_status: str, session_id: str | None) -> bool:
-    """Refund a paid order through Stripe.
+def refund_order_if_paid(
+    *,
+    payment_status: str,
+    session_id: str | None,
+    payment_method: str = "",
+) -> bool:
+    """Refund a paid card order through Stripe.
 
-    Returns True if money was refunded (or already had been).
-    Returns False if there was nothing to refund.
-    Raises RuntimeError if a refund is required but cannot be completed.
+    Returns True only when Stripe was asked to refund on this call.
+    Returns False if there was nothing to refund (unpaid, cash, already refunded).
+    Raises RuntimeError if a card refund is required but cannot be completed.
     """
     if payment_status == "refunded":
-        return True
+        return False
+    if (payment_method or "").strip() == "cash":
+        return False
     if payment_status != "paid":
         return False
     sid = (session_id or "").strip()
