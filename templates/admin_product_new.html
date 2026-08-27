@@ -37,7 +37,7 @@
       Product code
       <input type="text" name="code" value="{{ form_code or '' }}" maxlength="16" placeholder="HH-001" autocomplete="off">
     </label>
-    <p class="field-hint">Leave blank to assign the next code (HP-001, LOTR-001, HH-001, PK-001, TOY-001). Shown on stock, packing slips, and studio order emails.</p>
+    <p class="field-hint">Leave blank to assign a code from the genre prefix (for example HP-012). Shown on stock, packing slips, and studio order emails.</p>
     <label>
       Starting stock
       <input type="number" name="stock" min="0" value="{{ form_stock | default(1) }}">

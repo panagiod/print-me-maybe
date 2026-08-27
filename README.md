@@ -200,12 +200,12 @@ Resend TXT/MX records for email ([#2](https://github.com/panagiod/print-me-maybe
 
 ## Features
 
-- Catalog with genre filters (Harry Potter, Lord of the Rings, Household, Pokémon, Toys); photos sit in a square well (tall or wide shots are cropped to fill); several photos scroll left/right on the home cards and on the product page (swipe, arrows, or thumbs)
+- Catalog with genre filters (Harry Potter, Lord of the Rings, Household, Pokémon, Toys by default; add, rename, or remove genres in studio); photos sit in a square well (tall or wide shots are cropped to fill); several photos scroll left/right on the home cards and on the product page (swipe, arrows, or thumbs)
 - Session cart; quantity cannot exceed stock
 - Shipping chosen at checkout (see [Shipping](#shipping)): pick up free, Cyprus delivery €3.50, Greece delivery €10
 - Checkout: name, email, phone (required for delivery), street / city / postcode, optional order notes, pick-up or delivery (Cyprus or Greece), **card (Stripe)** or **cash at pick up**
 - Customer order page at `/order/{unguessable-token}` — status, payment, tracking number, notes (times in Europe/Nicosia)
-- Studio at `/admin` (not linked in public nav): orders (search, shipping filters), tracking, customer/studio notes, copy customer link, resend mail, cash/bank paid, packing slip (print + PDF), cancel (Stripe refund + restock + customer email), catalog with photos, hide/show, add/edit/remove product + gallery
+- Studio at `/admin` (not linked in public nav): orders (search, shipping filters), tracking, customer/studio notes, copy customer link, resend mail, cash/bank paid, packing slip (print + PDF), cancel (Stripe refund + restock + customer email), catalog with photos, hide/show, add/edit/remove product + gallery, **genres**
 - Emails via [Resend](https://resend.com): new order (studio + customer), ready to collect/pack, shipped (customer; delivery waits for tracking), cancelled (studio + customer), attack alerts
 - JSON catalog at `GET /api/products`
 - Liveness at `GET /health` (`mail`, `payments`, `persistent`)
@@ -226,7 +226,7 @@ Resend TXT/MX records for email ([#2](https://github.com/panagiod/print-me-maybe
 ```
 src/                 FastAPI app
   main.py            Storefront routes (home, product, cart, checkout, health)
-  admin.py           Studio login, orders, tracking, stock, add/edit/remove product, gallery, packing slip, test email
+  admin.py           Studio login, orders, tracking, stock, genres, add/edit/remove product, gallery, packing slip, test email
   store.py           Products, cart lines, place_order, pending Stripe checkouts
   db.py              SQLite helpers and DATA_DIR
   migrate.py         Alembic upgrade entry point
@@ -360,7 +360,7 @@ Two dashboards that are easy to mix up:
 
 ## Shop behaviour
 
-**Catalog.** Live listing names, descriptions, genres, prices, stock, and photos live in SQLite (`DATA_DIR/eshop.db`) and `DATA_DIR/product-images` — not in GitHub. `src/seed.py` only inserts **missing** slugs on an empty database (and fills empty product codes once). Boot never overwrites studio edits. Leftover genre labels `3D Prints` / `Laser Engraving` are renamed to Household. Listing photos that still point at `/static/images/products/` are copied into `DATA_DIR` and rewritten to `/media/products/...`. The git tree keeps only `placeholder.svg` as UI chrome. Each product can have **several photos**; `image_url` is the cover (first gallery image) used on cards and in the cart. Codes (`3D-GLASSES`, `LC-BOARD`, or the next `HP-001` / `LOTR-001` / `HH-001` / `PK-001` / `TOY-001`) show on Stock, packing slips, and studio order emails, and are snapshotted onto each order line.
+**Catalog.** Live listing names, descriptions, genres, prices, stock, and photos live in SQLite (`DATA_DIR/eshop.db`) and `DATA_DIR/product-images` — not in GitHub. `src/seed.py` only inserts **missing** slugs on an empty database (and fills empty product codes once). Boot never overwrites studio edits. Genres live in the `product_genres` table (studio **Genres** page: add, rename, remove). Renaming a genre updates every product that uses it. Old `3D Prints` / `Laser Engraving` labels are renamed to Household. Listing photos that still point at `/static/images/products/` are copied into `DATA_DIR` and rewritten to `/media/products/...`. The git tree keeps only `placeholder.svg` as UI chrome. Each product can have **several photos**; `image_url` is the cover (first gallery image) used on cards and in the cart. Codes (`3D-GLASSES`, `LC-BOARD`, or a prefix from the genre such as `HP-001` / `SW-012`) show on Stock, packing slips, and studio order emails, and are snapshotted onto each order line.
 
 **Cart.** Stored in the signed session cookie (7 days). Add/update quantity is capped at remaining stock. Zero stock hides a product from the shop and the product page shows **Sold out** (no Add to cart). **Hidden** products (studio toggle) are omitted from the shop and product URLs 404. The cart shows the product subtotal only; shipping is not applied until checkout.
 
@@ -414,8 +414,9 @@ Public nav does not advertise `/admin`. Login: `/admin/login` on your domain (pr
 | `/admin/orders/{id}` | Status, **tracking number**, customer notes vs studio notes, phone (`tel:`), copy customer link, resend confirmation (and shipped email), **Mark as paid (cash/bank)**, **Archive** shipped/cancelled (or **Restore to inbox**), print packing slip, **download PDF**, Stripe session id, cancel (Stripe refund if card-paid, restock, email customer) / reopen (blocked if refunded) |
 | `/admin/orders/{id}/print` | Packing slip (print hides the admin chrome) |
 | `/admin/orders/{id}/print.pdf` | Same slip as a downloadable PDF |
-| `/admin/stock` | Catalog with **photos** and **product codes**; search by name or code; genre and listed/hidden chips; qty / hide / show save in place; **Add product**; **Remove** (confirm) |
-| `/admin/products/new` | Add a product with optional **product code** (blank assigns the next HP/LOTR/HH/PK/TOY code), photo preview (several photos allowed; first is the cover) |
+| `/admin/stock` | Catalog with **photos** and **product codes**; search by name or code; genre and listed/hidden chips; qty / hide / show save in place; **Add product**; **Remove** (confirm); link to **Genres** |
+| `/admin/genres` | Add, rename, or remove shop genres (chips and product dropdown). Rename updates listings. Remove moves products to another genre if any are assigned |
+| `/admin/products/new` | Add a product with optional **product code** (blank assigns a code from the genre prefix), photo preview (several photos allowed; first is the cover) |
 | `/admin/products/{id}/edit` | Name/price/copy/stock/**code**; **current photos**; add/remove/set cover; view in shop |
 
 ### Daily order flow
@@ -447,9 +448,11 @@ Delivery cannot be cash — those orders still go to Stripe Checkout.
 
 ### Catalog
 
-Studio **Stock** is a photo grid. Search by name, filter by genre (Harry Potter / Lord of the Rings / Household / Pokemon / Toys) or Listed / Hidden.
+Studio **Stock** is a photo grid. Search by name, filter by genre (from **Genres**) or Listed / Hidden.
 
-**Add a product.** `/admin/products/new` — name, description, price, genre, **product code** (optional), stock, and one or more photos (preview before save). After save you return to Stock with an “added” banner. Leave the code blank to get the next `HP-001`, `LOTR-001`, `HH-001`, `PK-001`, or `TOY-001`.
+**Add a product.** `/admin/products/new` — name, description, price, genre, **product code** (optional), stock, and one or more photos (preview before save). After save you return to Stock with an “added” banner. Leave the code blank to get `{prefix}-{id}` from the genre (for example `HP-012`).
+
+**Genres.** `/admin/genres` — add a name and code prefix, rename (updates every listing on that genre), or remove. If the genre still has products, pick another genre to move them into first.
 
 **Photos.** Edit shows the current gallery. The **cover** is the shop card and cart thumb; extra photos scroll left/right on the home cards and on `/product/{slug}` (swipe, arrow buttons, or thumbs on the product page). Catalog and product galleries use a **square well** and cover-crop mixed aspect photos so cards do not leave empty cavities. You can add files, **Make cover**, or **Remove** a photo. Uploads (JPG/PNG/WebP/GIF, 5 MB each) are stored uniquely under `DATA_DIR/product-images`. **Pillow** auto-rotates, strips EXIF, writes a display image (max 1600px) and a **thumb** (max 400px). Catalog cards, cart, and gallery thumbs use the thumb; the product page main image uses the display file.
 

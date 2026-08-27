@@ -37,18 +37,22 @@ from src.pdf import packing_slip_filename, packing_slip_pdf_bytes
 from src.payments import refund_order_if_paid
 from src.ratelimit import client_ip
 from src.store import (
-    CATEGORIES,
     PLACEHOLDER_IMAGE,
     add_product_photos,
     archive_done_orders,
     catalog_counts,
+    create_genre,
     create_product,
+    delete_genre,
     delete_product,
     delete_product_photo,
     euros_to_cents,
+    get_genre,
     get_order,
     get_product,
     list_all_products,
+    list_categories,
+    list_genres,
     list_orders,
     mark_order_paid_cash,
     order_archive_counts,
@@ -61,6 +65,7 @@ from src.store import (
     set_product_stock,
     stripe_session_id_for_order,
     unique_slug,
+    update_genre,
     update_order_notes,
     update_order_status,
     update_order_tracking,
@@ -127,7 +132,7 @@ def _stock_filters(
         visibility = None
     if visibility == "":
         visibility = None
-    if category and category not in CATEGORIES:
+    if category and category not in list_categories():
         category = None
     if category == "":
         category = None
@@ -762,7 +767,7 @@ def stock_page(
         return gate
     if visibility not in {None, "listed", "hidden"}:
         visibility = None
-    if category and category not in CATEGORIES:
+    if category and category not in list_categories():
         category = None
     needle = (q or "").strip()
     return templates.TemplateResponse(
@@ -772,7 +777,7 @@ def stock_page(
             request,
             {
                 "products": list_all_products(category=category, q=needle, visibility=visibility),
-                "categories": CATEGORIES,
+                "categories": list_categories(),
                 "catalog_counts": catalog_counts(),
                 "active_category": category,
                 "active_visibility": visibility,
@@ -796,7 +801,7 @@ def _product_form_ctx(
     product=None,
 ) -> dict[str, Any]:
     return {
-        "categories": CATEGORIES,
+        "categories": list_categories(),
         "error": error,
         "form_name": form_name,
         "form_description": form_description,
@@ -1073,7 +1078,7 @@ def product_delete(request: Request, product_id: int) -> Any:
                 request,
                 {
                     "products": list_all_products(),
-                    "categories": CATEGORIES,
+                    "categories": list_categories(),
                     "catalog_counts": catalog_counts(),
                     "active_category": None,
                     "active_visibility": None,
@@ -1086,4 +1091,105 @@ def product_delete(request: Request, product_id: int) -> Any:
             status_code=400,
         )
     return RedirectResponse(url="/admin/stock", status_code=303)
+
+
+def _genre_page(
+    request: Request,
+    *,
+    error: str | None = None,
+    added: bool = False,
+    form_name: str = "",
+    form_prefix: str = "",
+    status_code: int = 200,
+) -> Any:
+    return templates.TemplateResponse(
+        request,
+        "admin_genres.html",
+        _ctx(
+            request,
+            {
+                "genres": list_genres(),
+                "error": error,
+                "added": added,
+                "form_name": form_name,
+                "form_prefix": form_prefix,
+            },
+        ),
+        status_code=status_code,
+    )
+
+
+@router.get("/genres")
+def genres_page(request: Request, added: str | None = None) -> Any:
+    gate = require_admin(request)
+    if gate:
+        return gate
+    return _genre_page(request, added=bool(added))
+
+
+@router.post("/genres")
+def genre_create(
+    request: Request,
+    name: str = Form(""),
+    code_prefix: str = Form(""),
+) -> Any:
+    gate = require_admin(request)
+    if gate:
+        return gate
+    try:
+        create_genre(name=name, code_prefix=code_prefix)
+    except ValueError as exc:
+        return _genre_page(
+            request,
+            error=str(exc),
+            form_name=name,
+            form_prefix=code_prefix,
+            status_code=400,
+        )
+    return RedirectResponse(url="/admin/genres?added=1", status_code=303)
+
+
+@router.post("/genres/{genre_id}/edit")
+def genre_edit(
+    request: Request,
+    genre_id: int,
+    name: str = Form(""),
+    code_prefix: str = Form(""),
+) -> Any:
+    gate = require_admin(request)
+    if gate:
+        return gate
+    if not get_genre(genre_id):
+        raise HTTPException(status_code=404, detail="Genre not found")
+    try:
+        update_genre(genre_id, name=name, code_prefix=code_prefix)
+    except ValueError as exc:
+        return _genre_page(request, error=str(exc), status_code=400)
+    return RedirectResponse(url="/admin/genres", status_code=303)
+
+
+@router.post("/genres/{genre_id}/delete")
+def genre_delete(
+    request: Request,
+    genre_id: int,
+    move_to: str = Form(""),
+) -> Any:
+    gate = require_admin(request)
+    if gate:
+        return gate
+    if not get_genre(genre_id):
+        raise HTTPException(status_code=404, detail="Genre not found")
+    move_to_id: int | None = None
+    raw = (move_to or "").strip()
+    if raw:
+        try:
+            move_to_id = int(raw)
+        except ValueError:
+            return _genre_page(request, error="Choose a genre to move products into", status_code=400)
+    try:
+        delete_genre(genre_id, move_to_id=move_to_id)
+    except ValueError as exc:
+        return _genre_page(request, error=str(exc), status_code=400)
+    return RedirectResponse(url="/admin/genres", status_code=303)
+
 
