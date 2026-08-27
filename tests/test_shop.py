@@ -57,6 +57,7 @@ def test_health_and_catalog() -> None:
     assert "Lord of the Rings" in home.text
     assert "Household" in home.text
     assert "Pokemon" in home.text
+    assert "Toys" in home.text
     assert 'aria-label="Genres"' in home.text
 
     api = client.get("/api/products")
@@ -95,6 +96,10 @@ def test_category_filter() -> None:
     pokemon = client.get("/?category=Pokemon")
     assert pokemon.status_code == 200
     assert "No products in this genre right now." in pokemon.text
+
+    toys = client.get("/?category=Toys")
+    assert toys.status_code == 200
+    assert "No products in this genre right now." in toys.text
 
 
 def test_shipping_calculation() -> None:
