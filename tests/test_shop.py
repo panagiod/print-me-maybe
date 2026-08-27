@@ -40,9 +40,9 @@ def test_health_and_catalog() -> None:
     home = client.get("/")
     assert home.status_code == 200
     assert "Print Me Maybe" in home.text
-    assert "LaserCraft 27" in home.text
+    assert "LaserCraft 27" not in home.text
     assert "print.me.maybe" in home.text
-    assert "lasercraft.27" in home.text
+    assert "lasercraft.27" not in home.text
     assert "Made in Cyprus" in home.text
     assert 'name="viewport"' in home.text
     assert "viewport-fit=cover" in home.text
@@ -53,14 +53,22 @@ def test_health_and_catalog() -> None:
     assert "Teddy Bear Keychain" in home.text
     assert "€5.00" in home.text
     assert "/static/images/products/glasses-case.jpg" in home.text
+    assert "Harry Potter" in home.text
+    assert "Lord of the Rings" in home.text
+    assert "Household" in home.text
+    assert "Pokemon" in home.text
+    assert 'aria-label="Genres"' in home.text
 
     api = client.get("/api/products")
     assert api.status_code == 200
     products = api.json()
     assert len(products) >= 1
     categories = {p["category"] for p in products}
-    assert "3D Prints" in categories
-    assert "Laser Engraving" in categories
+    assert "Harry Potter" in categories
+    assert "Lord of the Rings" in categories
+    assert "Household" in categories
+    assert "3D Prints" not in categories
+    assert "Laser Engraving" not in categories
 
 
 def test_category_filter() -> None:
@@ -68,15 +76,25 @@ def test_category_filter() -> None:
     seed_products()
 
     client = TestClient(app)
-    prints = client.get("/?category=3D Prints")
-    assert prints.status_code == 200
-    assert "Floral Glasses Case" in prints.text
-    assert "Engraved Oak Coaster Set" not in prints.text
+    potter = client.get("/?category=Harry Potter")
+    assert potter.status_code == 200
+    assert "Magical World Bookshelf Decor" in potter.text
+    assert "Floral Glasses Case" not in potter.text
 
-    laser = client.get("/?category=Laser Engraving")
-    assert laser.status_code == 200
-    assert "Engraved Oak Coaster Set" in laser.text
-    assert "Floral Glasses Case" not in laser.text
+    rings = client.get("/?category=Lord of the Rings")
+    assert rings.status_code == 200
+    assert "Minas Tirith" in rings.text
+    assert "Floral Glasses Case" not in rings.text
+
+    household = client.get("/?category=Household")
+    assert household.status_code == 200
+    assert "Floral Glasses Case" in household.text
+    assert "Oak Coaster Set" in household.text
+    assert "Magical World Bookshelf Decor" not in household.text
+
+    pokemon = client.get("/?category=Pokemon")
+    assert pokemon.status_code == 200
+    assert "No products in this genre right now." in pokemon.text
 
 
 def test_shipping_calculation() -> None:
@@ -433,7 +451,7 @@ def test_admin_add_product_shows_in_shop() -> None:
             "name": "Studio Test Vase",
             "description": "A custom 3D vase.",
             "price": "12.50",
-            "category": "3D Prints",
+            "category": "Household",
             "stock": "4",
         },
         follow_redirects=False,
@@ -448,7 +466,7 @@ def test_admin_add_product_shows_in_shop() -> None:
             "name": "Studio Test Vase",
             "description": "A custom 3D vase.",
             "price": "12.50",
-            "category": "3D Prints",
+            "category": "Household",
             "stock": "4",
         },
         files={"image": ("vase.png", _PNG_1X1, "image/png")},
@@ -496,7 +514,7 @@ def test_admin_edit_product() -> None:
             "name": "Floral Case Updated",
             "description": "Updated description.",
             "price": "6.50",
-            "category": "3D Prints",
+            "category": "Household",
             "stock": "9",
         },
         follow_redirects=False,
@@ -524,7 +542,7 @@ def test_admin_delete_product() -> None:
             "name": "Delete Me Mug",
             "description": "Temporary product.",
             "price": "8.00",
-            "category": "3D Prints",
+            "category": "Household",
             "stock": "2",
         },
         follow_redirects=False,
@@ -576,7 +594,7 @@ def test_admin_add_product_rejects_bad_price() -> None:
             "name": "Broken Price",
             "description": "Should not save.",
             "price": "free",
-            "category": "Laser Engraving",
+            "category": "Household",
             "stock": "1",
         },
     )
@@ -1160,7 +1178,7 @@ def test_admin_add_page_and_multiple_photos() -> None:
             "name": "Gallery Dragon",
             "description": "Two photos.",
             "price": "18.00",
-            "category": "3D Prints",
+            "category": "Lord of the Rings",
             "stock": "3",
         },
         files=[
@@ -1171,7 +1189,7 @@ def test_admin_add_page_and_multiple_photos() -> None:
     )
     assert created.status_code == 303
     product = next(p for p in list_all_products() if p.slug == "gallery-dragon")
-    assert product.code == f"3D-{product.id:03d}"
+    assert product.code == f"LOTR-{product.id:03d}"
     assert len(product.gallery) == 2
     assert product.image_url == product.gallery[0].url
     shop = client.get(f"/product/{product.slug}")
@@ -1243,12 +1261,22 @@ def test_product_codes_on_stock_orders_and_slips() -> None:
     glasses = next(p for p in list_all_products() if p.slug == "glasses-case")
     assert glasses.code == "3D-GLASSES"
 
+    with pytest.raises(ValueError, match="Choose a genre"):
+        create_product(
+            name="Old Line",
+            description="Should fail.",
+            price_cents=500,
+            category="Laser Engraving",
+            stock=1,
+            image_url="/static/images/products/placeholder.svg",
+        )
+
     with pytest.raises(ValueError, match="already in use"):
         create_product(
             name="Studio Coaster",
             description="Duplicate code.",
             price_cents=900,
-            category="Laser Engraving",
+            category="Household",
             stock=4,
             image_url="/static/images/products/placeholder.svg",
             code="lc-board",
@@ -1258,12 +1286,12 @@ def test_product_codes_on_stock_orders_and_slips() -> None:
         name="Studio Coaster",
         description="Custom code.",
         price_cents=900,
-        category="Laser Engraving",
+        category="Household",
         stock=4,
         image_url="/static/images/products/placeholder.svg",
-        code="lc-custom",
+        code="hh-custom",
     )
-    assert created.code == "LC-CUSTOM"
+    assert created.code == "HH-CUSTOM"
     updated = update_product(
         created.id,
         name=created.name,
@@ -1271,9 +1299,9 @@ def test_product_codes_on_stock_orders_and_slips() -> None:
         price_cents=created.price_cents,
         category=created.category,
         stock=created.stock,
-        code="lc-custom-2",
+        code="hh-custom-2",
     )
-    assert updated.code == "LC-CUSTOM-2"
+    assert updated.code == "HH-CUSTOM-2"
 
     client.post("/cart/add", data={"product_id": glasses.id, "quantity": 1})
     checkout = client.post(

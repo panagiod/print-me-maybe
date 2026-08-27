@@ -200,7 +200,7 @@ Resend TXT/MX records for email ([#2](https://github.com/panagiod/print-me-maybe
 
 ## Features
 
-- Catalog with category filter (3D Prints / Laser Engraving); several photos scroll left/right on the home cards and on the product page (swipe, arrows, or thumbs)
+- Catalog with genre filters (Harry Potter, Lord of the Rings, Household, Pokémon); several photos scroll left/right on the home cards and on the product page (swipe, arrows, or thumbs)
 - Session cart; quantity cannot exceed stock
 - Shipping chosen at checkout (see [Shipping](#shipping)): pick up free, Cyprus delivery €3.50, Greece delivery €10
 - Checkout: name, email, phone (required for delivery), street / city / postcode, optional order notes, pick-up or delivery (Cyprus or Greece), **card (Stripe)** or **cash at pick up**
@@ -360,7 +360,7 @@ Two dashboards that are easy to mix up:
 
 ## Shop behaviour
 
-**Catalog.** Seed products live in `src/seed.py` (names, **product codes**, euro prices, photos from public Instagram where a price was named). On boot, missing slugs are inserted. **Existing rows are left as-is** — admin price, name, photo, category, stock, and code survive deploy/restart. Products added in studio are never overwritten. Each product can have **several photos**; `image_url` is the cover (first gallery image) used on cards and in the cart. Codes (`3D-GLASSES`, `LC-BOARD`, or the next `3D-001` / `LC-001`) show on Stock, packing slips, and studio order emails, and are snapshotted onto each order line.
+**Catalog.** Seed products live in `src/seed.py` (names, **product codes**, euro prices, photos from public Instagram where a price was named). On boot, missing slugs are inserted and listings are remapped onto the current genres (**Harry Potter**, **Lord of the Rings**, **Household**, **Pokemon**). Admin price, photo, stock, and code survive deploy/restart. Products added in studio are never overwritten. Each product can have **several photos**; `image_url` is the cover (first gallery image) used on cards and in the cart. Codes (`3D-GLASSES`, `LC-BOARD`, or the next `HP-001` / `LOTR-001` / `HH-001` / `PK-001`) show on Stock, packing slips, and studio order emails, and are snapshotted onto each order line.
 
 **Cart.** Stored in the signed session cookie (7 days). Add/update quantity is capped at remaining stock. Zero stock hides a product from the shop and the product page shows **Sold out** (no Add to cart). **Hidden** products (studio toggle) are omitted from the shop and product URLs 404. The cart shows the product subtotal only; shipping is not applied until checkout.
 
@@ -414,8 +414,8 @@ Public nav does not advertise `/admin`. Login: `/admin/login` on your domain (pr
 | `/admin/orders/{id}` | Status, **tracking number**, customer notes vs studio notes, phone (`tel:`), copy customer link, resend confirmation (and shipped email), **Mark as paid (cash/bank)**, **Archive** shipped/cancelled (or **Restore to inbox**), print packing slip, **download PDF**, Stripe session id, cancel (Stripe refund if card-paid, restock, email customer) / reopen (blocked if refunded) |
 | `/admin/orders/{id}/print` | Packing slip (print hides the admin chrome) |
 | `/admin/orders/{id}/print.pdf` | Same slip as a downloadable PDF |
-| `/admin/stock` | Catalog with **photos** and **product codes**; search by name or code; category and listed/hidden chips; qty / hide / show save in place; **Add product**; **Remove** (confirm) |
-| `/admin/products/new` | Add a product with optional **product code** (blank assigns the next 3D/LC code), photo preview (several photos allowed; first is the cover) |
+| `/admin/stock` | Catalog with **photos** and **product codes**; search by name or code; genre and listed/hidden chips; qty / hide / show save in place; **Add product**; **Remove** (confirm) |
+| `/admin/products/new` | Add a product with optional **product code** (blank assigns the next HP/LOTR/HH/PK code), photo preview (several photos allowed; first is the cover) |
 | `/admin/products/{id}/edit` | Name/price/copy/stock/**code**; **current photos**; add/remove/set cover; view in shop |
 
 ### Daily order flow
@@ -447,9 +447,9 @@ Delivery cannot be cash — those orders still go to Stripe Checkout.
 
 ### Catalog
 
-Studio **Stock** is a photo grid. Search by name, filter by line (3D / laser) or Listed / Hidden.
+Studio **Stock** is a photo grid. Search by name, filter by genre (Harry Potter / Lord of the Rings / Household / Pokemon) or Listed / Hidden.
 
-**Add a product.** `/admin/products/new` — name, description, price, category, **product code** (optional), stock, and one or more photos (preview before save). After save you return to Stock with an “added” banner. Leave the code blank to get the next `3D-001` or `LC-001`.
+**Add a product.** `/admin/products/new` — name, description, price, genre, **product code** (optional), stock, and one or more photos (preview before save). After save you return to Stock with an “added” banner. Leave the code blank to get the next `HP-001`, `LOTR-001`, `HH-001`, or `PK-001`.
 
 **Photos.** Edit shows the current gallery. The **cover** is the shop card and cart thumb; extra photos scroll left/right on the home cards and on `/product/{slug}` (swipe, arrow buttons, or thumbs on the product page). You can add files, **Make cover**, or **Remove** a photo. Uploads (JPG/PNG/WebP/GIF, 5 MB each) are stored uniquely under `DATA_DIR/product-images`. **Pillow** auto-rotates, strips EXIF, writes a display image (max 1600px) and a **thumb** (max 400px). Catalog cards, cart, and gallery thumbs use the thumb; the product page main image uses the display file.
 

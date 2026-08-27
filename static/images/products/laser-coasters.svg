@@ -1,8 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="800" height="800" viewBox="0 0 800 800" role="img" aria-label="LaserCraft 27 custom coasters">
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="800" viewBox="0 0 800 800" role="img" aria-label="Print Me Maybe oak coasters">
   <rect width="800" height="800" fill="#d7b48a"/>
   <rect x="48" y="48" width="704" height="704" fill="none" stroke="#5c3a1e" stroke-width="6"/>
   <circle cx="400" cy="340" r="140" fill="#c49a6c" stroke="#5c3a1e" stroke-width="4"/>
   <circle cx="400" cy="340" r="88" fill="none" stroke="#5c3a1e" stroke-width="2"/>
-  <text x="400" y="560" text-anchor="middle" font-family="Georgia, serif" font-size="36" fill="#3a2412">LaserCraft 27</text>
-  <text x="400" y="610" text-anchor="middle" font-family="system-ui, sans-serif" font-size="22" fill="#3a2412">Custom engraved coasters</text>
+  <text x="400" y="560" text-anchor="middle" font-family="Georgia, serif" font-size="36" fill="#3a2412">Print Me Maybe</text>
+  <text x="400" y="610" text-anchor="middle" font-family="system-ui, sans-serif" font-size="22" fill="#3a2412">Custom oak coasters</text>
 </svg>
