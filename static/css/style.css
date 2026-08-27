@@ -235,6 +235,7 @@ img {
   box-shadow: var(--shadow);
   display: flex;
   flex-direction: column;
+  min-width: 0;
   transition: transform 0.2s, box-shadow 0.2s;
 }
 
@@ -261,16 +262,24 @@ img {
 
 .product-card-gallery {
   background: #f0ebe3;
+  width: 100%;
+  min-width: 0;
 }
 
 .gallery-slide-link {
   flex: 0 0 100%;
   width: 100%;
+  min-width: 100%;
+  max-width: 100%;
   aspect-ratio: 1;
   display: block;
   scroll-snap-align: start;
   scroll-snap-stop: always;
   overflow: hidden;
+}
+
+.gallery-slide-link .product-image {
+  display: block;
 }
 
 .product-card-gallery .gallery-nav {
@@ -413,11 +422,16 @@ img {
 
 .gallery {
   position: relative;
+  min-width: 0;
+  width: 100%;
 }
 
 .gallery-viewport {
   display: flex;
+  width: 100%;
+  min-width: 0;
   overflow-x: auto;
+  overflow-y: hidden;
   scroll-snap-type: x mandatory;
   scroll-behavior: smooth;
   overscroll-behavior-x: contain;
@@ -432,6 +446,8 @@ img {
 .gallery-slide {
   flex: 0 0 100%;
   width: 100%;
+  min-width: 100%;
+  max-width: 100%;
   aspect-ratio: 1;
   object-fit: cover;
   scroll-snap-align: start;
