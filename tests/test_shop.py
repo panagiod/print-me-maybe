@@ -68,6 +68,7 @@ def test_health_and_catalog() -> None:
     assert "Harry Potter" in categories
     assert "Lord of the Rings" in categories
     assert "Household" in categories
+    assert "Toys" in categories
     assert "3D Prints" not in categories
     assert "Laser Engraving" not in categories
 
@@ -85,6 +86,7 @@ def test_category_filter() -> None:
     rings = client.get("/?category=Lord of the Rings")
     assert rings.status_code == 200
     assert "Minas Tirith" in rings.text
+    assert "Articulated Dragon" not in rings.text
     assert "Floral Glasses Case" not in rings.text
 
     household = client.get("/?category=Household")
@@ -99,7 +101,10 @@ def test_category_filter() -> None:
 
     toys = client.get("/?category=Toys")
     assert toys.status_code == 200
-    assert "No products in this genre right now." in toys.text
+    assert "Articulated Dragon" in toys.text
+    assert "Dragon Egg" in toys.text
+    assert "Dragon & Egg Set" in toys.text
+    assert "Minas Tirith" not in toys.text
 
 
 def test_shipping_calculation() -> None:
