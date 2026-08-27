@@ -161,19 +161,47 @@ CATALOG = [
         "stock": 8,
     },
 ]
+SEED_CODES = {
+    "magical-world-bookshelf": "3D-BOOKSHELF",
+    "glasses-case": "3D-GLASSES",
+    "scrunchie-holder": "3D-SCRUNCHIE",
+    "lip-balm-holder-set": "3D-LIPBALM",
+    "magic-bookshelf-decor": "3D-WIZARD",
+    "minas-tirith": "3D-MINAS",
+    "funny-desk-signs": "3D-SIGNS",
+    "articulated-dragon": "3D-DRAGON",
+    "dragon-egg": "3D-EGG",
+    "dragon-egg-set": "3D-SET",
+    "custom-cake-topper": "3D-TOPPER",
+    "bear-keychain": "3D-BEAR",
+    "oak-coaster-set": "LC-COASTERS",
+    "cutting-board": "LC-BOARD",
+    "name-plaque": "LC-PLAQUE",
+    "family-name-sign": "LC-SIGN",
+}
+for _item in CATALOG:
+    _item["code"] = SEED_CODES[_item["slug"]]
 
 
 def seed_products() -> None:
     """Insert missing catalog SKUs. Existing rows (including admin edits) are left as-is.
 
     Stock and products added from studio admin are never overwritten by seed.
+    Empty product codes on known slugs are filled once.
     """
     with get_connection() as conn:
         conn.executemany(
             """
-            INSERT INTO products (slug, name, description, price_cents, image_url, category, stock)
-            VALUES (:slug, :name, :description, :price_cents, :image_url, :category, :stock)
+            INSERT INTO products (slug, name, description, price_cents, image_url, category, stock, code)
+            VALUES (:slug, :name, :description, :price_cents, :image_url, :category, :stock, :code)
             ON CONFLICT(slug) DO NOTHING
+            """,
+            CATALOG,
+        )
+        conn.executemany(
+            """
+            UPDATE products SET code = :code
+            WHERE slug = :slug AND COALESCE(code, '') = ''
             """,
             CATALOG,
         )

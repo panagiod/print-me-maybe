@@ -8,6 +8,7 @@
   <div class="admin-product-body">
     <p class="product-category">{{ product.category }}</p>
     <h2 class="admin-product-name">{{ product.name }}</h2>
+    {% if product.code %}<p class="admin-product-code">{{ product.code }}</p>{% endif %}
     <p class="admin-product-price">{{ product.price_display }}</p>
     <p class="admin-product-badges">
       {% if product.hidden %}

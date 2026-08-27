@@ -148,7 +148,7 @@ def order_email_body(order: Order) -> str:
     ]
     for item in order.items:
         lines.append(
-            f"- {item.product_name} × {item.quantity} — {item.line_total_display}"
+            f"- {item.studio_label} × {item.quantity} — {item.line_total_display}"
         )
     pay_line = _checkout_payment_line(order, for_customer=False)
     lines.extend(

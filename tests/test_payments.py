@@ -73,6 +73,9 @@ def test_checkout_with_stripe_redirects(tmp_path, monkeypatch) -> None:
     client.post("/cart/add", data={"product_id": glasses["id"], "quantity": 1})
     page = client.get("/checkout")
     assert "Pay with card" in page.text
+    assert "Pay with cash at pick up" in page.text
+    assert 'id="pay-card-btn"' in page.text
+    assert 'id="pay-cash-btn"' in page.text
     result = client.post(
         "/checkout",
         data={

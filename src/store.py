@@ -11,7 +11,18 @@ from decimal import Decimal, InvalidOperation
 from typing import Any, Iterable
 
 from src.db import get_connection
-from src.models import CartLine, Order, OrderItem, Product, ProductImage
+from src.models import (
+    ARCHIVABLE_STATUSES,
+    CartLine,
+    Order,
+    OrderItem,
+    Product,
+    ProductImage,
+    normalize_product_code,
+    parse_studio_day,
+    product_code_prefix,
+    studio_day_utc_bounds,
+)
 
 CATEGORIES = ("3D Prints", "Laser Engraving")
 PLACEHOLDER_IMAGE = "/static/images/products/placeholder.svg"
@@ -166,8 +177,9 @@ def list_all_products(
         params.append(category)
     needle = (q or "").strip()
     if needle:
-        clauses.append("name LIKE ?")
-        params.append(f"%{needle}%")
+        clauses.append("(name LIKE ? OR code LIKE ?)")
+        like = f"%{needle}%"
+        params.extend([like, like])
     if visibility == "hidden":
         clauses.append("COALESCE(hidden, 0) = 1")
     elif visibility == "listed":
@@ -232,6 +244,42 @@ def delete_product(product_id: int) -> None:
         conn.execute("DELETE FROM products WHERE id = ?", (product_id,))
 
 
+def _code_taken(conn, code: str, exclude_id: int | None = None) -> bool:
+    if exclude_id is None:
+        row = conn.execute("SELECT id FROM products WHERE code = ?", (code,)).fetchone()
+    else:
+        row = conn.execute(
+            "SELECT id FROM products WHERE code = ? AND id != ?",
+            (code, exclude_id),
+        ).fetchone()
+    return row is not None
+
+
+def allocate_product_code(
+    conn,
+    *,
+    category: str,
+    product_id: int,
+    requested: str = "",
+    exclude_id: int | None = None,
+) -> str:
+    """Return a unique product code, or raise if the typed code is already used."""
+    wanted = normalize_product_code(requested)
+    if wanted:
+        if not _code_taken(conn, wanted, exclude_id):
+            return wanted
+        raise ValueError(f"Product code {wanted} is already in use")
+    prefix = product_code_prefix(category)
+    base = f"{prefix}-{product_id:03d}"
+    if not _code_taken(conn, base, exclude_id):
+        return base
+    for extra in range(2, 100):
+        candidate = f"{base}-{extra}"
+        if not _code_taken(conn, candidate, exclude_id):
+            return candidate
+    raise ValueError("Could not allocate a product code")
+
+
 def create_product(
     *,
     name: str,
@@ -242,6 +290,7 @@ def create_product(
     image_url: str,
     slug: str | None = None,
     extra_image_urls: list[str] | None = None,
+    code: str = "",
 ) -> Product:
     """Insert a product created from the studio admin."""
     cleaned_name = name.strip()
@@ -268,12 +317,19 @@ def create_product(
     with get_connection() as conn:
         cursor = conn.execute(
             """
-            INSERT INTO products (slug, name, description, price_cents, image_url, category, stock, hidden)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 0)
+            INSERT INTO products (slug, name, description, price_cents, image_url, category, stock, hidden, code)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 0, '')
             """,
             (product_slug, cleaned_name, cleaned_description, price_cents, cover, cleaned_category, qty),
         )
         product_id = int(cursor.lastrowid)
+        allocated = allocate_product_code(
+            conn,
+            category=cleaned_category,
+            product_id=product_id,
+            requested=code,
+        )
+        conn.execute("UPDATE products SET code = ? WHERE id = ?", (allocated, product_id))
         for index, url in enumerate(photos):
             if url and url != PLACEHOLDER_IMAGE:
                 conn.execute(
@@ -294,6 +350,7 @@ def update_product(
     category: str,
     stock: int,
     image_url: str | None = None,
+    code: str | None = None,
 ) -> Product:
     """Update listing fields from the studio edit form. Slug stays the same."""
     existing = get_product(product_id)
@@ -312,15 +369,31 @@ def update_product(
         raise ValueError("Price must be greater than zero")
     photo = existing.image_url
     qty = max(0, stock)
+    requested_code = existing.code if code is None else code
 
     with get_connection() as conn:
+        allocated = allocate_product_code(
+            conn,
+            category=cleaned_category,
+            product_id=product_id,
+            requested=requested_code,
+            exclude_id=product_id,
+        )
         conn.execute(
             """
             UPDATE products
-            SET name = ?, description = ?, price_cents = ?, category = ?, stock = ?
+            SET name = ?, description = ?, price_cents = ?, category = ?, stock = ?, code = ?
             WHERE id = ?
             """,
-            (cleaned_name, cleaned_description, price_cents, cleaned_category, qty, product_id),
+            (
+                cleaned_name,
+                cleaned_description,
+                price_cents,
+                cleaned_category,
+                qty,
+                allocated,
+                product_id,
+            ),
         )
         if image_url and image_url.strip() and image_url.strip() != PLACEHOLDER_IMAGE:
             _append_product_photos(conn, product_id, [image_url.strip()])
@@ -458,11 +531,44 @@ def list_orders(
     *,
     shipping: str | None = None,
     q: str | None = None,
+    archived: bool = False,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    sort: str = "newest",
 ) -> list[Order]:
-    """Newest-first order list for the studio admin."""
-    query = "SELECT * FROM orders"
+    """Studio order list. Inbox (default) hides archived shipped/cancelled orders."""
+    where, params = _order_filter_sql(
+        status=status,
+        shipping=shipping,
+        q=q,
+        archived=archived,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    order_by = "ORDER BY created_at ASC, id ASC" if sort == "oldest" else "ORDER BY created_at DESC, id DESC"
+    query = f"SELECT * FROM orders{where} {order_by}"
+    with get_connection() as conn:
+        rows = conn.execute(query, tuple(params)).fetchall()
+        return [_order_from_row(conn, row) for row in rows]
+
+
+def _order_filter_sql(
+    *,
+    status: str | None = None,
+    shipping: str | None = None,
+    q: str | None = None,
+    archived: bool = False,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    include_archive_clause: bool = True,
+) -> tuple[str, list[object]]:
     clauses: list[str] = []
     params: list[object] = []
+    if include_archive_clause:
+        if archived:
+            clauses.append("COALESCE(archived, 0) = 1")
+        else:
+            clauses.append("COALESCE(archived, 0) = 0")
     if status:
         clauses.append("status = ?")
         params.append(status)
@@ -476,51 +582,175 @@ def list_orders(
     if needle:
         if needle.isdigit():
             clauses.append(
-                "(id = ? OR customer_name LIKE ? OR customer_email LIKE ? OR tracking_number LIKE ?)"
+                "(id = ? OR customer_name LIKE ? OR customer_email LIKE ? OR tracking_number LIKE ?"
+                " OR id IN (SELECT order_id FROM order_items WHERE product_code LIKE ? OR product_name LIKE ?))"
             )
             like = f"%{needle}%"
-            params.extend([int(needle), like, like, like])
+            params.extend([int(needle), like, like, like, like, like])
         else:
             clauses.append(
-                "(customer_name LIKE ? OR customer_email LIKE ? OR tracking_number LIKE ?)"
+                "(customer_name LIKE ? OR customer_email LIKE ? OR tracking_number LIKE ?"
+                " OR id IN (SELECT order_id FROM order_items WHERE product_code LIKE ? OR product_name LIKE ?))"
             )
             like = f"%{needle}%"
-            params.extend([like, like, like])
-    if clauses:
-        query += " WHERE " + " AND ".join(clauses)
-    query += " ORDER BY id DESC"
+            params.extend([like, like, like, like, like])
+    start_day = parse_studio_day(date_from)
+    end_day = parse_studio_day(date_to)
+    if start_day:
+        bounds = studio_day_utc_bounds(start_day)
+        if bounds:
+            clauses.append("created_at >= ?")
+            params.append(bounds[0])
+    if end_day:
+        bounds = studio_day_utc_bounds(end_day)
+        if bounds:
+            clauses.append("created_at < ?")
+            params.append(bounds[1])
+    if not clauses:
+        return "", []
+    return " WHERE " + " AND ".join(clauses), params
 
-    with get_connection() as conn:
-        rows = conn.execute(query, tuple(params)).fetchall()
-        return [_order_from_row(conn, row) for row in rows]
 
-
-def order_shipping_counts() -> dict[str, int]:
+def order_shipping_counts(
+    *,
+    archived: bool = False,
+    q: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    status: str | None = None,
+) -> dict[str, int]:
     """Counts for pickup vs Cyprus vs international filter chips."""
+    base, params = _order_filter_sql(
+        status=status,
+        q=q,
+        archived=archived,
+        date_from=date_from,
+        date_to=date_to,
+    )
     with get_connection() as conn:
+        total = conn.execute(f"SELECT COUNT(*) FROM orders{base}", tuple(params)).fetchone()[0]
         pickup = conn.execute(
-            "SELECT COUNT(*) FROM orders WHERE shipping_method = 'pickup'"
+            f"SELECT COUNT(*) FROM orders{base} {'AND' if base else 'WHERE'} shipping_method = 'pickup'",
+            tuple(params),
         ).fetchone()[0]
         cyprus = conn.execute(
-            "SELECT COUNT(*) FROM orders WHERE shipping_method = 'delivery' AND delivery_country = 'cyprus'"
+            f"SELECT COUNT(*) FROM orders{base} {'AND' if base else 'WHERE'} "
+            "shipping_method = 'delivery' AND delivery_country = 'cyprus'",
+            tuple(params),
         ).fetchone()[0]
         other = conn.execute(
-            "SELECT COUNT(*) FROM orders WHERE shipping_method = 'delivery' AND delivery_country = 'other'"
+            f"SELECT COUNT(*) FROM orders{base} {'AND' if base else 'WHERE'} "
+            "shipping_method = 'delivery' AND delivery_country = 'other'",
+            tuple(params),
         ).fetchone()[0]
-        total = conn.execute("SELECT COUNT(*) FROM orders").fetchone()[0]
     return {"all": int(total), "pickup": int(pickup), "cyprus": int(cyprus), "other": int(other)}
 
 
-def order_status_counts() -> dict[str, int]:
+def order_status_counts(
+    *,
+    archived: bool = False,
+    q: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    shipping: str | None = None,
+) -> dict[str, int]:
     """Counts for the admin status filter chips."""
+    base, params = _order_filter_sql(
+        shipping=shipping,
+        q=q,
+        archived=archived,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    group = f"SELECT status, COUNT(*) AS n FROM orders{base} GROUP BY status"
+    total_sql = f"SELECT COUNT(*) FROM orders{base}"
     with get_connection() as conn:
-        rows = conn.execute(
-            "SELECT status, COUNT(*) AS n FROM orders GROUP BY status"
-        ).fetchall()
-        total = conn.execute("SELECT COUNT(*) FROM orders").fetchone()[0]
+        rows = conn.execute(group, tuple(params)).fetchall()
+        total = conn.execute(total_sql, tuple(params)).fetchone()[0]
     counts = {row["status"]: int(row["n"]) for row in rows}
     counts["all"] = int(total)
     return counts
+
+
+def order_archive_counts(
+    *,
+    q: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    status: str | None = None,
+    shipping: str | None = None,
+) -> dict[str, int]:
+    """Inbox vs archived counts for the same search/date/status/shipping filters."""
+    inbox_where, inbox_params = _order_filter_sql(
+        status=status,
+        shipping=shipping,
+        q=q,
+        archived=False,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    archived_where, archived_params = _order_filter_sql(
+        status=status,
+        shipping=shipping,
+        q=q,
+        archived=True,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    with get_connection() as conn:
+        inbox = conn.execute(
+            f"SELECT COUNT(*) FROM orders{inbox_where}", tuple(inbox_params)
+        ).fetchone()[0]
+        archived = conn.execute(
+            f"SELECT COUNT(*) FROM orders{archived_where}", tuple(archived_params)
+        ).fetchone()[0]
+    return {"inbox": int(inbox), "archived": int(archived)}
+
+
+def set_order_archived(order_id: int, archived: bool) -> None:
+    """Hide a shipped or cancelled order from the inbox (or restore it)."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT status FROM orders WHERE id = ?",
+            (order_id,),
+        ).fetchone()
+        if not row:
+            raise ValueError("Order not found")
+        if archived and row["status"] not in ARCHIVABLE_STATUSES:
+            raise ValueError("Only shipped or cancelled orders can be archived")
+        conn.execute(
+            "UPDATE orders SET archived = ? WHERE id = ?",
+            (1 if archived else 0, order_id),
+        )
+
+
+def archive_done_orders(
+    *,
+    status: str | None = None,
+    shipping: str | None = None,
+    q: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> int:
+    """Archive every shipped or cancelled order currently in the inbox for these filters."""
+    where, params = _order_filter_sql(
+        status=status,
+        shipping=shipping,
+        q=q,
+        archived=False,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    placeholders = ", ".join("?" for _ in ARCHIVABLE_STATUSES)
+    extra = f"status IN ({placeholders})"
+    params.extend(ARCHIVABLE_STATUSES)
+    clause = f"{where} AND {extra}" if where else f" WHERE {extra}"
+    with get_connection() as conn:
+        cursor = conn.execute(
+            f"UPDATE orders SET archived = 1{clause}",
+            tuple(params),
+        )
+        return int(cursor.rowcount or 0)
 
 
 def update_order_status(order_id: int, status: str) -> None:
@@ -570,6 +800,8 @@ def update_order_status(order_id: int, status: str) -> None:
                 )
 
         conn.execute("UPDATE orders SET status = ? WHERE id = ?", (status, order_id))
+        if status not in ARCHIVABLE_STATUSES:
+            conn.execute("UPDATE orders SET archived = 0 WHERE id = ?", (order_id,))
 
 
 def update_order_notes(order_id: int, notes: str) -> None:
@@ -618,7 +850,8 @@ def _order_from_row(conn, row) -> Order:
     item_rows = conn.execute(
         """
         SELECT oi.quantity, oi.unit_price_cents,
-               COALESCE(NULLIF(oi.product_name, ''), p.name, 'Item') AS product_name
+               COALESCE(NULLIF(oi.product_name, ''), p.name, 'Item') AS product_name,
+               COALESCE(NULLIF(oi.product_code, ''), p.code, '') AS product_code
         FROM order_items oi
         LEFT JOIN products p ON p.id = oi.product_id
         WHERE oi.order_id = ?
@@ -631,6 +864,7 @@ def _order_from_row(conn, row) -> Order:
             product_name=item["product_name"],
             quantity=item["quantity"],
             unit_price_cents=item["unit_price_cents"],
+            product_code=item["product_code"] if "product_code" in item.keys() and item["product_code"] else "",
         )
         for item in item_rows
     ]
@@ -659,6 +893,7 @@ def _order_from_row(conn, row) -> Order:
         customer_notes=row["customer_notes"] if "customer_notes" in keys and row["customer_notes"] else "",
         customer_phone=row["customer_phone"] if "customer_phone" in keys and row["customer_phone"] else "",
         payment_method=row["payment_method"] if "payment_method" in keys and row["payment_method"] else "",
+        archived=bool(row["archived"]) if "archived" in keys and row["archived"] else False,
     )
 
 
@@ -860,8 +1095,8 @@ def place_order(
         for line in lines:
             conn.execute(
                 """
-                INSERT INTO order_items (order_id, product_id, quantity, unit_price_cents, product_name)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO order_items (order_id, product_id, quantity, unit_price_cents, product_name, product_code)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
                 (
                     order_id,
@@ -869,6 +1104,7 @@ def place_order(
                     line.quantity,
                     line.product.price_cents,
                     line.product.name,
+                    line.product.code,
                 ),
             )
             conn.execute(

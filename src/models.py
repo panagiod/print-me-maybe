@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -14,6 +15,7 @@ STUDIO_TZ = ZoneInfo(os.environ.get("SHOP_TIMEZONE", "Europe/Nicosia"))
 
 
 ORDER_STATUSES = ("new", "in_progress", "ready", "shipped", "cancelled")
+ARCHIVABLE_STATUSES = ("shipped", "cancelled")
 ORDER_STATUS_LABELS = {
     "new": "New",
     "in_progress": "In progress",
@@ -52,10 +54,29 @@ def shipping_method_label(shipping_method: str, delivery_country: str | None = N
     if shipping_method == "pickup":
         return "Pick up at studio"
     if delivery_country == "other":
-        return "Delivery outside Cyprus"
+        return "International delivery"
     if shipping_method == "delivery":
         return "Delivery in Cyprus"
     return ""
+
+
+PRODUCT_CODE_PREFIXES = {
+    "3D Prints": "3D",
+    "Laser Engraving": "LC",
+}
+
+
+def product_code_prefix(category: str) -> str:
+    return PRODUCT_CODE_PREFIXES.get(category, "PMM")
+
+
+def normalize_product_code(raw: str | None) -> str:
+    """Uppercase A–Z, digits, and hyphens, max 16 characters."""
+    text = (raw or "").strip().upper()
+    text = re.sub(r"[\s_]+", "-", text)
+    text = re.sub(r"[^A-Z0-9-]", "", text)
+    text = re.sub(r"-{2,}", "-", text).strip("-")
+    return text[:16]
 
 
 def format_money(cents: int) -> str:
@@ -70,6 +91,33 @@ def clean_phone(raw: str) -> str:
 def phone_has_enough_digits(raw: str, minimum: int = 8) -> bool:
     digits = "".join(ch for ch in raw if ch.isdigit())
     return len(digits) >= minimum
+
+
+def parse_studio_day(raw: str | None) -> str | None:
+    """Return YYYY-MM-DD if raw is a calendar day, else None."""
+    text = (raw or "").strip()
+    if not text:
+        return None
+    try:
+        datetime.strptime(text, "%Y-%m-%d")
+    except ValueError:
+        return None
+    return text
+
+
+def studio_day_utc_bounds(day: str) -> tuple[str, str] | None:
+    """Inclusive UTC start and exclusive UTC end for a Europe/Nicosia calendar day."""
+    parsed = parse_studio_day(day)
+    if not parsed:
+        return None
+    start_local = datetime.strptime(parsed, "%Y-%m-%d").replace(tzinfo=STUDIO_TZ)
+    end_local = start_local + timedelta(days=1)
+    start_utc = start_local.astimezone(timezone.utc)
+    end_utc = end_local.astimezone(timezone.utc)
+    return (
+        start_utc.strftime("%Y-%m-%d %H:%M:%S"),
+        end_utc.strftime("%Y-%m-%d %H:%M:%S"),
+    )
 
 
 def format_local_time(raw: str) -> str:
@@ -95,7 +143,7 @@ def format_local_time(raw: str) -> str:
 
 
 def shipping_cents(shipping_method: str, delivery_country: str | None = None) -> int:
-    """Shipping is chosen at checkout: pick-up is free; Cyprus delivery is €3.50; outside Cyprus is €10."""
+    """Shipping is chosen at checkout: pick-up is free; Cyprus delivery is €3.50; international is €10."""
     if shipping_method == "pickup":
         return 0
     if delivery_country == "other":
@@ -135,6 +183,7 @@ class Product:
     stock: int
     hidden: bool = False
     gallery: tuple[ProductImage, ...] = ()
+    code: str = ""
 
     @classmethod
     def from_row(cls, row: Any, *, gallery: tuple[ProductImage, ...] = ()) -> "Product":
@@ -153,6 +202,7 @@ class Product:
             stock=row["stock"],
             hidden=hidden,
             gallery=photos,
+            code=(row["code"] or "").strip() if "code" in keys and row["code"] else "",
         )
 
     @property
@@ -196,6 +246,13 @@ class OrderItem:
     product_name: str
     quantity: int
     unit_price_cents: int
+    product_code: str = ""
+
+    @property
+    def studio_label(self) -> str:
+        if self.product_code:
+            return f"{self.product_code}  {self.product_name}"
+        return self.product_name
 
     @property
     def line_total_cents(self) -> int:
@@ -227,6 +284,7 @@ class Order:
     customer_notes: str = ""
     customer_phone: str = ""
     payment_method: str = ""
+    archived: bool = False
 
     @property
     def paid(self) -> bool:
@@ -244,6 +302,15 @@ class Order:
     @property
     def created_at_display(self) -> str:
         return format_local_time(self.created_at)
+
+    @property
+    def created_at_day(self) -> str:
+        display = self.created_at_display
+        return display[:10] if display else ""
+
+    @property
+    def can_archive(self) -> bool:
+        return self.status in ARCHIVABLE_STATUSES
 
     @property
     def customer_order_path(self) -> str:

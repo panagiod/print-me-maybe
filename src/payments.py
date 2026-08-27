@@ -67,7 +67,7 @@ def _shipping_line_name(shipping_method: str, delivery_country: str) -> str:
     if shipping_method == "pickup":
         return "Pick up at studio"
     if delivery_country == "other":
-        return "Delivery (outside Cyprus)"
+        return "International delivery"
     return "Delivery (Cyprus)"
 
 
