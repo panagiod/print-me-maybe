@@ -11,7 +11,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any, Iterable
 
 from src.db import get_connection
-from src.models import CartLine, Order, OrderItem, Product
+from src.models import CartLine, Order, OrderItem, Product, ProductImage
 
 CATEGORIES = ("3D Prints", "Laser Engraving")
 PLACEHOLDER_IMAGE = "/static/images/products/placeholder.svg"
@@ -52,8 +52,8 @@ def unique_slug(name: str) -> str:
 
 
 def list_products(category: str | None = None) -> list[Product]:
-    """Return all in-stock products, optionally filtered by category."""
-    query = "SELECT * FROM products WHERE stock > 0"
+    """Return listed, in-stock products, optionally filtered by category."""
+    query = "SELECT * FROM products WHERE stock > 0 AND COALESCE(hidden, 0) = 0"
     params: tuple[object, ...] = ()
     if category:
         query += " AND category = ?"
@@ -62,14 +62,18 @@ def list_products(category: str | None = None) -> list[Product]:
 
     with get_connection() as conn:
         rows = conn.execute(query, params).fetchall()
-    return [Product.from_row(row) for row in rows]
+        return _products_from_rows(conn, rows)
 
 
 def list_categories() -> list[str]:
-    """Distinct product categories for the shop filter bar."""
+    """Distinct product categories that currently have listed, in-stock items."""
     with get_connection() as conn:
         rows = conn.execute(
-            "SELECT DISTINCT category FROM products ORDER BY category"
+            """
+            SELECT DISTINCT category FROM products
+            WHERE stock > 0 AND COALESCE(hidden, 0) = 0
+            ORDER BY category
+            """
         ).fetchall()
     return [row["category"] for row in rows]
 
@@ -78,14 +82,14 @@ def get_product(product_id: int) -> Product | None:
     """Look up a product by id for cart updates."""
     with get_connection() as conn:
         row = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
-    return Product.from_row(row) if row else None
+        return _product_from_row(conn, row) if row else None
 
 
 def get_product_by_slug(slug: str) -> Product | None:
     """Look up a single product for the detail page."""
     with get_connection() as conn:
         row = conn.execute("SELECT * FROM products WHERE slug = ?", (slug,)).fetchone()
-    return Product.from_row(row) if row else None
+        return _product_from_row(conn, row) if row else None
 
 
 def get_products_by_ids(product_ids: Iterable[int]) -> dict[int, Product]:
@@ -100,7 +104,8 @@ def get_products_by_ids(product_ids: Iterable[int]) -> dict[int, Product]:
             f"SELECT * FROM products WHERE id IN ({placeholders})",
             ids,
         ).fetchall()
-    return {row["id"]: Product.from_row(row) for row in rows}
+        products = _products_from_rows(conn, rows)
+    return {product.id: product for product in products}
 
 
 def build_cart_lines(cart: dict[str, int]) -> list[CartLine]:
@@ -112,7 +117,7 @@ def build_cart_lines(cart: dict[str, int]) -> list[CartLine]:
     lines: list[CartLine] = []
     for pid_str, qty in cart.items():
         product = products.get(int(pid_str))
-        if product and qty > 0:
+        if product and qty > 0 and not product.hidden:
             lines.append(CartLine(product=product, quantity=min(qty, product.stock)))
     return lines
 
@@ -146,13 +151,45 @@ def get_order_by_token(token: str) -> Order | None:
         return _order_from_row(conn, row)
 
 
-def list_all_products() -> list[Product]:
-    """Admin catalog including sold-out items. Zero stock last."""
+def list_all_products(
+    *,
+    category: str | None = None,
+    q: str | None = None,
+    visibility: str | None = None,
+) -> list[Product]:
+    """Admin catalog including sold-out and hidden items."""
+    query = "SELECT * FROM products"
+    clauses: list[str] = []
+    params: list[object] = []
+    if category:
+        clauses.append("category = ?")
+        params.append(category)
+    needle = (q or "").strip()
+    if needle:
+        clauses.append("name LIKE ?")
+        params.append(f"%{needle}%")
+    if visibility == "hidden":
+        clauses.append("COALESCE(hidden, 0) = 1")
+    elif visibility == "listed":
+        clauses.append("COALESCE(hidden, 0) = 0")
+    if clauses:
+        query += " WHERE " + " AND ".join(clauses)
+    query += (
+        " ORDER BY COALESCE(hidden, 0), CASE WHEN stock <= 0 THEN 1 ELSE 0 END, category, name"
+    )
     with get_connection() as conn:
-        rows = conn.execute(
-            "SELECT * FROM products ORDER BY CASE WHEN stock <= 0 THEN 1 ELSE 0 END, category, name"
-        ).fetchall()
-    return [Product.from_row(row) for row in rows]
+        rows = conn.execute(query, tuple(params)).fetchall()
+        return _products_from_rows(conn, rows)
+
+
+def catalog_counts() -> dict[str, int]:
+    """Counts for admin listed / hidden chips."""
+    with get_connection() as conn:
+        total = conn.execute("SELECT COUNT(*) FROM products").fetchone()[0]
+        hidden = conn.execute(
+            "SELECT COUNT(*) FROM products WHERE COALESCE(hidden, 0) = 1"
+        ).fetchone()[0]
+    return {"all": int(total), "listed": int(total) - int(hidden), "hidden": int(hidden)}
 
 
 def set_product_stock(product_id: int, stock: int) -> None:
@@ -161,6 +198,18 @@ def set_product_stock(product_id: int, stock: int) -> None:
         conn.execute(
             "UPDATE products SET stock = ? WHERE id = ?",
             (max(0, stock), product_id),
+        )
+
+
+def set_product_hidden(product_id: int, hidden: bool) -> None:
+    """Hide or show a product on the public shop without deleting it."""
+    with get_connection() as conn:
+        row = conn.execute("SELECT id FROM products WHERE id = ?", (product_id,)).fetchone()
+        if not row:
+            raise ValueError("Product not found")
+        conn.execute(
+            "UPDATE products SET hidden = ? WHERE id = ?",
+            (1 if hidden else 0, product_id),
         )
 
 
@@ -176,8 +225,10 @@ def delete_product(product_id: int) -> None:
         ).fetchone()
         if ordered:
             raise ValueError(
-                "This product has been ordered before. Set stock to 0 to hide it from the shop."
+                "This product has been ordered before, so it cannot be deleted. "
+                "Hide it from the shop instead."
             )
+        conn.execute("DELETE FROM product_images WHERE product_id = ?", (product_id,))
         conn.execute("DELETE FROM products WHERE id = ?", (product_id,))
 
 
@@ -190,7 +241,216 @@ def create_product(
     stock: int,
     image_url: str,
     slug: str | None = None,
+    extra_image_urls: list[str] | None = None,
 ) -> Product:
+    """Insert a product created from the studio admin."""
+    cleaned_name = name.strip()
+    if not cleaned_name:
+        raise ValueError("Name is required")
+    cleaned_description = description.strip()
+    if not cleaned_description:
+        raise ValueError("Description is required")
+    cleaned_category = category.strip()
+    if not cleaned_category:
+        raise ValueError("Category is required")
+    if price_cents <= 0:
+        raise ValueError("Price must be greater than zero")
+
+    product_slug = (slug or "").strip() or unique_slug(cleaned_name)
+    photos = [image_url.strip()] if image_url.strip() else []
+    for url in extra_image_urls or []:
+        cleaned = (url or "").strip()
+        if cleaned and cleaned not in photos:
+            photos.append(cleaned)
+    cover = photos[0] if photos else PLACEHOLDER_IMAGE
+    qty = max(0, stock)
+
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """
+            INSERT INTO products (slug, name, description, price_cents, image_url, category, stock, hidden)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 0)
+            """,
+            (product_slug, cleaned_name, cleaned_description, price_cents, cover, cleaned_category, qty),
+        )
+        product_id = int(cursor.lastrowid)
+        for index, url in enumerate(photos):
+            if url and url != PLACEHOLDER_IMAGE:
+                conn.execute(
+                    "INSERT INTO product_images (product_id, url, sort_order) VALUES (?, ?, ?)",
+                    (product_id, url, index),
+                )
+        _sync_cover(conn, product_id)
+        row = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
+        return _product_from_row(conn, row)
+
+
+def update_product(
+    product_id: int,
+    *,
+    name: str,
+    description: str,
+    price_cents: int,
+    category: str,
+    stock: int,
+    image_url: str | None = None,
+) -> Product:
+    """Update listing fields from the studio edit form. Slug stays the same."""
+    existing = get_product(product_id)
+    if not existing:
+        raise ValueError("Product not found")
+    cleaned_name = name.strip()
+    if not cleaned_name:
+        raise ValueError("Name is required")
+    cleaned_description = description.strip()
+    if not cleaned_description:
+        raise ValueError("Description is required")
+    cleaned_category = category.strip()
+    if not cleaned_category:
+        raise ValueError("Category is required")
+    if price_cents <= 0:
+        raise ValueError("Price must be greater than zero")
+    photo = existing.image_url
+    qty = max(0, stock)
+
+    with get_connection() as conn:
+        conn.execute(
+            """
+            UPDATE products
+            SET name = ?, description = ?, price_cents = ?, category = ?, stock = ?
+            WHERE id = ?
+            """,
+            (cleaned_name, cleaned_description, price_cents, cleaned_category, qty, product_id),
+        )
+        if image_url and image_url.strip() and image_url.strip() != PLACEHOLDER_IMAGE:
+            _append_product_photos(conn, product_id, [image_url.strip()])
+            _sync_cover(conn, product_id)
+        row = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
+        return _product_from_row(conn, row)
+
+
+def add_product_photos(product_id: int, urls: list[str]) -> Product:
+    """Append photos to a product gallery. The first existing photo stays the cover."""
+    existing = get_product(product_id)
+    if not existing:
+        raise ValueError("Product not found")
+    cleaned = [url.strip() for url in urls if (url or "").strip()]
+    if not cleaned:
+        return existing
+    with get_connection() as conn:
+        _append_product_photos(conn, product_id, cleaned)
+        _sync_cover(conn, product_id)
+        row = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
+        return _product_from_row(conn, row)
+
+
+def set_product_cover(product_id: int, image_id: int) -> None:
+    """Make an existing gallery photo the cover (first in sort order)."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT id FROM product_images WHERE id = ? AND product_id = ?",
+            (image_id, product_id),
+        ).fetchone()
+        if not row:
+            raise ValueError("Photo not found")
+        conn.execute(
+            "UPDATE product_images SET sort_order = sort_order + 1 WHERE product_id = ?",
+            (product_id,),
+        )
+        conn.execute("UPDATE product_images SET sort_order = 0 WHERE id = ?", (image_id,))
+        _sync_cover(conn, product_id)
+
+
+def delete_product_photo(product_id: int, image_id: int) -> None:
+    """Remove one gallery photo. Last photo falls back to the placeholder."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT id FROM product_images WHERE id = ? AND product_id = ?",
+            (image_id, product_id),
+        ).fetchone()
+        if not row:
+            raise ValueError("Photo not found")
+        conn.execute(
+            "DELETE FROM product_images WHERE id = ? AND product_id = ?",
+            (image_id, product_id),
+        )
+        remaining = conn.execute(
+            """
+            SELECT url FROM product_images
+            WHERE product_id = ?
+            ORDER BY sort_order, id
+            LIMIT 1
+            """,
+            (product_id,),
+        ).fetchone()
+        cover = remaining["url"] if remaining else PLACEHOLDER_IMAGE
+        conn.execute("UPDATE products SET image_url = ? WHERE id = ?", (cover, product_id))
+
+
+def _append_product_photos(conn, product_id: int, urls: list[str]) -> None:
+    max_order = conn.execute(
+        "SELECT COALESCE(MAX(sort_order), -1) FROM product_images WHERE product_id = ?",
+        (product_id,),
+    ).fetchone()[0]
+    for index, url in enumerate(urls):
+        conn.execute(
+            "INSERT INTO product_images (product_id, url, sort_order) VALUES (?, ?, ?)",
+            (product_id, url, int(max_order) + 1 + index),
+        )
+
+
+def _sync_cover(conn, product_id: int) -> None:
+    row = conn.execute(
+        """
+        SELECT url FROM product_images
+        WHERE product_id = ?
+        ORDER BY sort_order, id
+        LIMIT 1
+        """,
+        (product_id,),
+    ).fetchone()
+    cover = row["url"] if row else PLACEHOLDER_IMAGE
+    conn.execute("UPDATE products SET image_url = ? WHERE id = ?", (cover, product_id))
+
+
+def _gallery_for(conn, product_id: int) -> tuple[ProductImage, ...]:
+    rows = conn.execute(
+        """
+        SELECT id, url, sort_order FROM product_images
+        WHERE product_id = ?
+        ORDER BY sort_order, id
+        """,
+        (product_id,),
+    ).fetchall()
+    return tuple(
+        ProductImage(id=row["id"], url=row["url"], sort_order=row["sort_order"]) for row in rows
+    )
+
+
+def _product_from_row(conn, row) -> Product:
+    return Product.from_row(row, gallery=_gallery_for(conn, row["id"]))
+
+
+def _products_from_rows(conn, rows) -> list[Product]:
+    ids = [row["id"] for row in rows]
+    by_pid: dict[int, list[ProductImage]] = {product_id: [] for product_id in ids}
+    if ids:
+        placeholders = ",".join("?" for _ in ids)
+        images = conn.execute(
+            f"""
+            SELECT id, product_id, url, sort_order FROM product_images
+            WHERE product_id IN ({placeholders})
+            ORDER BY sort_order, id
+            """,
+            ids,
+        ).fetchall()
+        for image in images:
+            by_pid.setdefault(image["product_id"], []).append(
+                ProductImage(id=image["id"], url=image["url"], sort_order=image["sort_order"])
+            )
+    return [
+        Product.from_row(row, gallery=tuple(by_pid.get(row["id"], []))) for row in rows
+    ]
     """Insert a product created from the studio admin."""
     cleaned_name = name.strip()
     if not cleaned_name:

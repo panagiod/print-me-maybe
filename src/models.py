@@ -94,6 +94,15 @@ def order_total_cents(subtotal_cents: int, shipping_method: str, delivery_countr
 
 
 @dataclass(frozen=True)
+class ProductImage:
+    """One photo on a product listing."""
+
+    id: int
+    url: str
+    sort_order: int = 0
+
+
+@dataclass(frozen=True)
 class Product:
     """A sellable item from the catalog."""
 
@@ -105,19 +114,36 @@ class Product:
     image_url: str
     category: str
     stock: int
+    hidden: bool = False
+    gallery: tuple[ProductImage, ...] = ()
 
     @classmethod
-    def from_row(cls, row: Any) -> "Product":
+    def from_row(cls, row: Any, *, gallery: tuple[ProductImage, ...] = ()) -> "Product":
+        keys = row.keys()
+        hidden = bool(row["hidden"]) if "hidden" in keys and row["hidden"] else False
+        photos = gallery
+        cover = photos[0].url if photos else row["image_url"]
         return cls(
             id=row["id"],
             slug=row["slug"],
             name=row["name"],
             description=row["description"],
             price_cents=row["price_cents"],
-            image_url=row["image_url"],
+            image_url=cover,
             category=row["category"],
             stock=row["stock"],
+            hidden=hidden,
+            gallery=photos,
         )
+
+    @property
+    def listed(self) -> bool:
+        return not self.hidden
+
+    @property
+    def gallery_urls(self) -> list[str]:
+        urls = [photo.url for photo in self.gallery]
+        return urls if urls else [self.image_url]
 
     @property
     def price_display(self) -> str:

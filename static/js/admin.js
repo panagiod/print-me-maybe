@@ -56,4 +56,19 @@
       window.print();
     });
   });
+
+  document.querySelectorAll("[data-photo-input]").forEach(function (input) {
+    const preview = document.querySelector("[data-photo-preview]");
+    if (!preview) return;
+    input.addEventListener("change", function () {
+      preview.innerHTML = "";
+      const files = input.files || [];
+      for (let i = 0; i < files.length; i += 1) {
+        const img = document.createElement("img");
+        img.src = URL.createObjectURL(files[i]);
+        img.alt = files[i].name;
+        preview.appendChild(img);
+      }
+    });
+  });
 })();

@@ -11,7 +11,16 @@
 
 <article class="product-detail">
   <div class="product-detail-image">
-    <img src="{{ product.image_url }}" alt="{{ product.name }}">
+    <img src="{{ product.image_url }}" alt="{{ product.name }}" id="gallery-main">
+    {% if product.gallery_urls|length > 1 %}
+    <div class="gallery-thumbs" role="list">
+      {% for url in product.gallery_urls %}
+      <button type="button" class="gallery-thumb {% if loop.first %}is-active{% endif %}" data-gallery-src="{{ url }}" aria-label="Photo {{ loop.index }}">
+        <img src="{{ url }}" alt="">
+      </button>
+      {% endfor %}
+    </div>
+    {% endif %}
   </div>
   <div class="product-detail-info">
     <p class="product-category">{{ product.category }}</p>
@@ -37,4 +46,7 @@
     {% endif %}
   </div>
 </article>
+{% if product.gallery_urls|length > 1 %}
+<script src="/static/js/gallery.js" defer></script>
+{% endif %}
 {% endblock %}

@@ -269,8 +269,8 @@ def test_admin_orders_and_stock() -> None:
     stock_page = client.get("/admin/stock")
     assert stock_page.status_code == 200
     assert glasses["name"] in stock_page.text
-    assert "Add a product" in stock_page.text
-    assert 'data-label="Qty"' in stock_page.text
+    assert "Add product" in stock_page.text
+    assert "admin-catalog" in stock_page.text
 
     client.post(f"/admin/stock/{glasses['id']}", data={"stock": "0"})
     hidden = client.get("/api/products").json()
@@ -421,7 +421,7 @@ def test_admin_add_product_shows_in_shop() -> None:
         follow_redirects=False,
     )
     assert created.status_code == 303
-    assert created.headers["location"] == "/admin/stock"
+    assert created.headers["location"] == "/admin/stock?added=1"
 
     product = next(p for p in list_all_products() if p.slug == "studio-test-vase")
     assert product.price_cents == 1250
@@ -851,4 +851,110 @@ def test_packing_slip_and_nicosia_time() -> None:
     assert "stock-zero" in stock.text
     assert 'data-confirm="Remove' in stock.text
     assert "/static/js/admin.js" in stock.text
+
+
+def test_admin_catalog_search_and_hide() -> None:
+    init_schema()
+    seed_products()
+    client = TestClient(app)
+    client.post("/admin/login", data={"password": "printmemaybe"})
+    stock = client.get("/admin/stock")
+    assert stock.status_code == 200
+    assert "Floral Glasses Case" in stock.text
+    assert "admin-catalog" in stock.text
+    assert "Add product" in stock.text
+    search = client.get("/admin/stock?q=Glasses")
+    assert "Floral Glasses Case" in search.text
+    assert "Minas Tirith" not in search.text
+    glasses = next(p for p in list_all_products() if p.slug == "glasses-case")
+    assert glasses.listed
+    hidden = client.post(
+        f"/admin/products/{glasses.id}/hide",
+        follow_redirects=False,
+    )
+    assert hidden.status_code == 303
+    home = client.get("/")
+    assert "Floral Glasses Case" not in home.text
+    assert client.get(f"/product/{glasses.slug}").status_code == 404
+    assert glasses.id not in {p["id"] for p in client.get("/api/products").json()}
+    listed_only = client.get("/admin/stock?visibility=listed")
+    assert "Floral Glasses Case" not in listed_only.text
+    hidden_only = client.get("/admin/stock?visibility=hidden")
+    assert "Floral Glasses Case" in hidden_only.text
+    assert "Hidden" in hidden_only.text
+    client.post(f"/admin/products/{glasses.id}/show")
+    home = client.get("/")
+    assert "Floral Glasses Case" in home.text
+
+
+def test_admin_add_page_and_multiple_photos() -> None:
+    init_schema()
+    seed_products()
+    client = TestClient(app)
+    client.post("/admin/login", data={"password": "printmemaybe"})
+    page = client.get("/admin/products/new")
+    assert page.status_code == 200
+    assert 'name="images"' in page.text
+    assert "multiple" in page.text
+    created = client.post(
+        "/admin/products",
+        data={
+            "name": "Gallery Dragon",
+            "description": "Two photos.",
+            "price": "18.00",
+            "category": "3D Prints",
+            "stock": "3",
+        },
+        files=[
+            ("images", ("one.png", _PNG_1X1, "image/png")),
+            ("images", ("two.png", _PNG_1X1, "image/png")),
+        ],
+        follow_redirects=False,
+    )
+    assert created.status_code == 303
+    product = next(p for p in list_all_products() if p.slug == "gallery-dragon")
+    assert len(product.gallery) == 2
+    assert product.image_url == product.gallery[0].url
+    shop = client.get(f"/product/{product.slug}")
+    assert shop.status_code == 200
+    assert "gallery-thumbs" in shop.text
+    edit = client.get(f"/admin/products/{product.id}/edit")
+    assert "Cover" in edit.text
+    assert product.gallery[0].url in edit.text
+    cover = client.post(
+        f"/admin/products/{product.id}/images/{product.gallery[1].id}/cover",
+        follow_redirects=False,
+    )
+    assert cover.status_code == 303
+    updated = next(p for p in list_all_products() if p.id == product.id)
+    assert updated.gallery[0].id == product.gallery[1].id
+    removed = client.post(
+        f"/admin/products/{product.id}/images/{updated.gallery[0].id}/delete",
+        follow_redirects=False,
+    )
+    assert removed.status_code == 303
+    leftover = next(p for p in list_all_products() if p.id == product.id)
+    assert len(leftover.gallery) == 1
+
+
+def test_hide_instead_when_delete_blocked() -> None:
+    init_schema()
+    seed_products()
+    client = TestClient(app)
+    products = client.get("/api/products").json()
+    glasses = next(p for p in products if p["slug"] == "glasses-case")
+    client.post("/cart/add", data={"product_id": glasses["id"], "quantity": 1})
+    client.post(
+        "/checkout",
+        data={
+            "customer_name": "Buyer",
+            "customer_email": "buyer@example.com",
+            "shipping_method": "pickup",
+        },
+    )
+    client.post("/admin/login", data={"password": "printmemaybe"})
+    blocked = client.post(f"/admin/products/{glasses['id']}/delete")
+    assert blocked.status_code == 400
+    assert "Hide" in blocked.text
+    assert f"/admin/products/{glasses['id']}/hide" in blocked.text
 

@@ -3,12 +3,39 @@
 {% block title %}Edit {{ product.name }} — {{ shop_name }}{% endblock %}
 
 {% block content %}
-<p class="breadcrumb"><a href="/admin/stock">Stock</a> / Edit</p>
+<p class="breadcrumb"><a href="/admin/stock">Stock</a> / Edit{% if product.listed %} / <a href="/product/{{ product.slug }}">View in shop</a>{% endif %}</p>
 <h1 class="page-title">Edit {{ product.name }}</h1>
 
 {% if error %}
 <div class="alert alert-error" role="alert">{{ error }}</div>
 {% endif %}
+
+<section class="current-photos">
+  <h2>Photos</h2>
+  <p class="checkout-note">The cover photo is shown on the shop home. Leave the file picker empty to keep these.</p>
+  {% if product.gallery %}
+  <ul class="admin-photo-grid">
+    {% for photo in product.gallery %}
+    <li class="admin-photo-item {% if loop.first %}is-cover{% endif %}">
+      <img src="{{ photo.url }}" alt="">
+      {% if loop.first %}
+      <span class="status-pill status-paid">Cover</span>
+      {% else %}
+      <form action="/admin/products/{{ product.id }}/images/{{ photo.id }}/cover" method="post">
+        <button type="submit" class="btn btn-ghost btn-sm">Make cover</button>
+      </form>
+      {% endif %}
+      <form action="/admin/products/{{ product.id }}/images/{{ photo.id }}/delete" method="post" data-confirm="Remove this photo?">
+        <button type="submit" class="btn btn-ghost btn-sm">Remove</button>
+      </form>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="muted">No photos yet — the shop shows a placeholder until you add one.</p>
+  <img src="{{ product.image_url }}" alt="" class="admin-placeholder-preview">
+  {% endif %}
+</section>
 
 <form action="/admin/products/{{ product.id }}/edit" method="post" enctype="multipart/form-data" class="checkout-form add-product-form">
   <fieldset>
@@ -38,10 +65,11 @@
       <input type="number" name="stock" min="0" value="{{ form_stock }}">
     </label>
     <label>
-      Replace photo
-      <input type="file" name="image" accept="image/jpeg,image/png,image/webp,image/gif">
+      Add photos
+      <input type="file" name="images" accept="image/jpeg,image/png,image/webp,image/gif" multiple data-photo-input>
     </label>
-    <p class="checkout-note">Leave the photo empty to keep the current image. The URL slug does not change.</p>
+    <div class="photo-preview" data-photo-preview></div>
+    <p class="checkout-note">New photos are added to the gallery. The URL slug does not change.</p>
     <button type="submit" class="btn btn-primary">Save product</button>
   </fieldset>
 </form>
