@@ -42,6 +42,7 @@ Work through these issues in order:
 - [Tests and CI](#tests-and-ci)
 - [Configuration](#configuration)
 - [Shop behaviour](#shop-behaviour)
+- [Shipping](#shipping)
 - [Studio admin](#studio-admin)
 - [Order emails](#order-emails)
 - [Security](#security)
@@ -192,10 +193,10 @@ Resend TXT/MX records for email ([#2](https://github.com/panagiod/print-me-maybe
 
 - Catalog with category filter (3D Prints / Laser Engraving)
 - Session cart; quantity cannot exceed stock
-- Shipping €3.50 under €25, free at €25+
-- Checkout: name, email, address, then **Stripe Checkout** when `STRIPE_SECRET_KEY` is set
+- Shipping chosen at checkout (see [Shipping](#shipping)): pick up free, Cyprus delivery €3.50, outside Cyprus €10
+- Checkout: name, email, pick-up or delivery, then **Stripe Checkout** when `STRIPE_SECRET_KEY` is set
 - Customer order page at `/order/{unguessable-token}`
-- Studio at `/admin` (not linked in public nav): orders, notes, cancel/restock, add product + photo
+- Studio at `/admin` (not linked in public nav): orders, notes, cancel/restock, add/remove product + photo
 - Background order email via [Resend](https://resend.com) (needs a domain you own — see [Order emails](#order-emails))
 - JSON catalog at `GET /api/products`
 - Liveness at `GET /health` (`mail`, `payments`, `persistent`)
@@ -213,7 +214,7 @@ Resend TXT/MX records for email ([#2](https://github.com/panagiod/print-me-maybe
 ```
 src/                 FastAPI app
   main.py            Storefront routes (home, product, cart, checkout, health)
-  admin.py           Studio login, orders, stock, test email
+  admin.py           Studio login, orders, stock, add/remove product, test email
   store.py           Products, cart lines, place_order
   db.py              SQLite schema and DATA_DIR
   models.py          Product/Order types, EUR formatting, shipping rules
@@ -289,11 +290,32 @@ Two dashboards that are easy to mix up:
 
 **Catalog.** Seed SKUs live in `src/seed.py` (names, euro prices, photos from public Instagram where a price was named). On boot, seed rows are upserted **by slug**. Stock changes and products added in studio are kept; seed does not reset quantity.
 
-**Cart.** Stored in the signed session cookie (7 days). Add/update quantity is capped at remaining stock. Zero stock hides a product from the shop.
+**Cart.** Stored in the signed session cookie (7 days). Add/update quantity is capped at remaining stock. Zero stock hides a product from the shop. The cart shows the product subtotal only; shipping is not applied until checkout.
 
-**Checkout.** POST `/checkout` with name, email, shipping address. If Stripe is configured, the browser goes to Stripe Checkout; the order is created only on `GET /pay/success` after Stripe reports `payment_status=paid`. The cart is also stored in Stripe metadata so a lost cookie cannot drop a paid order. Without Stripe, checkout is the old no-card demo.
+**Checkout.** GET `/checkout` collects name, email, and a delivery choice (pick up vs ship). Delivery requires a destination (Cyprus or outside Cyprus) and an address. POST `/checkout` then:
 
-**Customer order URL.** `/order/{lookup_token}` — random token, not the numeric id.
+1. Recalculates shipping from the chosen method and destination (see [Shipping](#shipping)).
+2. If Stripe is configured, the browser goes to Stripe Checkout. Shipping is a separate Stripe line item when it is more than €0. The order is created only on `GET /pay/success` after Stripe reports `payment_status=paid`. Cart, shipping method, destination, and totals are stored in Stripe metadata so a lost cookie cannot drop a paid order.
+3. Without Stripe, checkout is the no-card demo and still stores the same total (subtotal + shipping).
+
+Pick-up orders store the shipping address as `Pick up at studio`. Delivery orders store the address the customer typed.
+
+**Customer order URL.** `/order/{lookup_token}` — random token, not the numeric id. The confirmation and order pages show the shipping line (Free, €3.50, or €10) plus the total.
+
+## Shipping
+
+Rates are decided at checkout, not from cart size. There is no free-shipping threshold.
+
+| Method | Destination | Charge | Constant in `src/models.py` |
+|--------|-------------|--------|-----------------------------|
+| Pick up at studio | — | Free | `shipping_cents("pickup")` → `0` |
+| Delivery | Cyprus | €3.50 | `CYPRUS_SHIPPING_CENTS = 350` |
+| Delivery | Outside Cyprus | €10.00 | `INTERNATIONAL_SHIPPING_CENTS = 1000` |
+
+- Cart copy: “Pick up is free. Cyprus delivery is €3.50. Outside Cyprus is €10.”
+- Home hero: “Free pick up; €3.50 delivery in Cyprus; €10 shipping outside Cyprus.”
+- Checkout totals update in the browser when the customer switches pick-up / delivery or Cyprus / outside Cyprus. The server recomputes the same numbers on POST (and again from Stripe metadata after payment).
+- The `orders` table stores `shipping_address` and a combined `total_cents` (subtotal + shipping). Shipping itself is derived as `total_cents − item subtotal`.
 
 ## Studio admin
 
@@ -303,7 +325,9 @@ Public nav does not advertise `/admin`. Login: `/admin/login` on your domain.
 |------|----------------|
 | `/admin/orders` | Filter by status; Paid/Unpaid; **Send test email** |
 | `/admin/orders/{id}` | Status, notes, cancel (restock) / reopen (deduct again) |
-| `/admin/stock` | Add product (name, description, EUR price, category, photo, qty); set stock |
+| `/admin/stock` | Add product (name, description, EUR price, category, photo, qty); set stock; **Remove** unused products |
+
+**Remove a product.** Each row on `/admin/stock` has a **Remove** button (`POST /admin/products/{id}/delete`). Deletion is a hard delete from the `products` table. It is **blocked** if that product appears on any past order (foreign key on `order_items`). In that case the studio sees: *This product has been ordered before. Set stock to 0 to hide it from the shop.* Setting stock to 0 still hides the item from the public catalog without deleting history.
 
 Order statuses: New → In progress → Ready to ship → Shipped, plus Cancelled.
 
