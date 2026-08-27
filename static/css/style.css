@@ -266,11 +266,17 @@ img {
   min-width: 0;
 }
 
+.product-card-gallery .gallery-viewport {
+  aspect-ratio: 1;
+}
+
 .gallery-slide-link {
   flex: 0 0 100%;
   width: 100%;
   min-width: 100%;
   max-width: 100%;
+  min-height: 0;
+  height: 100%;
   aspect-ratio: 1;
   display: block;
   scroll-snap-align: start;
@@ -280,6 +286,10 @@ img {
 
 .gallery-slide-link .product-image {
   display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  aspect-ratio: 1;
 }
 
 .product-card-gallery .gallery-nav {
@@ -302,6 +312,10 @@ img {
   flex-direction: column;
   gap: 0.35rem;
   flex: 1;
+}
+
+.product-body .add-form {
+  margin-top: auto;
 }
 
 .product-category {
@@ -443,11 +457,17 @@ img {
   display: none;
 }
 
+.product-detail-image .gallery-viewport {
+  aspect-ratio: 1;
+}
+
 .gallery-slide {
   flex: 0 0 100%;
   width: 100%;
   min-width: 100%;
   max-width: 100%;
+  min-height: 0;
+  height: 100%;
   aspect-ratio: 1;
   object-fit: cover;
   scroll-snap-align: start;

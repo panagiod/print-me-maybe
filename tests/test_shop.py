@@ -1215,6 +1215,9 @@ def test_admin_add_page_and_multiple_photos() -> None:
     css = client.get("/static/css/style.css").text
     assert "min-width: 100%" in css
     assert ".gallery-slide-link" in css
+    assert ".product-card-gallery .gallery-viewport" in css
+    assert css.count("aspect-ratio: 1") >= 3
+    assert ".product-body .add-form" in css
     edit = client.get(f"/admin/products/{product.id}/edit")
     assert "Cover" in edit.text
     assert product.gallery[0].thumb_url in edit.text
