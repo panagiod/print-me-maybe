@@ -98,6 +98,20 @@ def test_seed_does_not_overwrite_studio_listing_copy() -> None:
     assert row["image_url"].startswith("/media/products/")
 
 
+def test_seed_does_not_bring_back_deleted_listings() -> None:
+    init_schema()
+    seed_products()
+    glasses = next(p for p in list_all_products() if p.slug == "glasses-case")
+    from src.store import delete_product
+
+    delete_product(glasses.id)
+    assert all(p.slug != "glasses-case" for p in list_all_products())
+    seed_products()
+    assert all(p.slug != "glasses-case" for p in list_all_products())
+    home = TestClient(app).get("/")
+    assert "Floral Glasses Case" not in home.text
+
+
 def test_seed_renames_leftover_genre_labels_only() -> None:
     init_schema()
     seed_products()
