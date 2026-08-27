@@ -334,6 +334,15 @@ def update_order_notes(order_id: int, notes: str) -> None:
         conn.execute("UPDATE orders SET notes = ? WHERE id = ?", (notes, order_id))
 
 
+def update_order_tracking(order_id: int, tracking_number: str) -> None:
+    cleaned = " ".join((tracking_number or "").split())[:120]
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE orders SET tracking_number = ? WHERE id = ?",
+            (cleaned, order_id),
+        )
+
+
 def set_payment_status(order_id: int, payment_status: str) -> None:
     if payment_status not in {"unpaid", "paid", "refunded"}:
         raise ValueError("Invalid payment status")
@@ -381,6 +390,9 @@ def _order_from_row(conn, row) -> Order:
         shipping_method=row["shipping_method"] if "shipping_method" in keys and row["shipping_method"] else "",
         delivery_country=row["delivery_country"]
         if "delivery_country" in keys and row["delivery_country"]
+        else "",
+        tracking_number=row["tracking_number"]
+        if "tracking_number" in keys and row["tracking_number"]
         else "",
     )
 

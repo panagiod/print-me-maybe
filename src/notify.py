@@ -498,6 +498,56 @@ def notify_order_cancelled(order: Order, *, refunded: bool) -> bool:
     return True
 
 
+def shipped_email_subject(order: Order) -> str:
+    return f"{shop_name()} order #{order.id} shipped"
+
+
+def shipped_email_body(order: Order) -> str:
+    link = (
+        f"{shop_url()}/order/{order.lookup_token}"
+        if order.lookup_token
+        else shop_url()
+    )
+    tracking = (order.tracking_number or "").strip()
+    if tracking:
+        track_lines = ["Tracking number:", tracking, ""]
+    else:
+        track_lines = ["A tracking number was not added yet.", ""]
+    return "\n".join(
+        [
+            f"Your {shop_name()} order #{order.id} has shipped.",
+            "",
+            *track_lines,
+            "View your order:",
+            link,
+            "",
+            "Questions? Reply to this email.",
+            "",
+        ]
+    )
+
+
+def notify_order_shipped(order: Order) -> bool:
+    """Email the customer when an order is marked shipped. Never raises."""
+    if not mail_configured():
+        logger.warning(
+            "Order #%s shipped; email skipped (set RESEND_API_KEY in /etc/eshop.env).",
+            order.id,
+        )
+        return False
+    try:
+        _deliver_customer_message(
+            to=order.customer_email,
+            subject=shipped_email_subject(order),
+            body=shipped_email_body(order),
+        )
+    except Exception:
+        logger.exception("Could not email customer about shipped order #%s", order.id)
+        return False
+    logger.info("Shipped notice for order #%s emailed to %s", order.id, order.customer_email)
+    return True
+
+
 def schedule_order_email(order: Order) -> None:
     """Email after checkout without blocking the thank-you page."""
     if os.environ.get("NOTIFY_SYNC", "").lower() in {"1", "true", "yes"}:

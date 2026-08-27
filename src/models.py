@@ -138,6 +138,7 @@ class Order:
     payment_status: str = "unpaid"
     shipping_method: str = ""
     delivery_country: str = ""
+    tracking_number: str = ""
 
     @property
     def paid(self) -> bool:

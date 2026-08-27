@@ -19,6 +19,8 @@ from src.notify import (
     mail_configured,
     notify_new_order,
     notify_order_cancelled,
+    notify_order_shipped,
+    shipped_email_body,
 )
 from src.seed import seed_products
 
@@ -148,6 +150,73 @@ def test_notify_order_cancelled_emails_studio_and_customer(monkeypatch) -> None:
     assert "refunded through Stripe" in studio["text"]
     assert customer["to"] == ["ada@example.com"]
     assert "€7.50 has been refunded" in customer["text"]
+
+
+def test_shipped_email_includes_tracking() -> None:
+    order = Order(
+        id=12,
+        customer_name="Ada Lovelace",
+        customer_email="ada@example.com",
+        shipping_address="12 Engine St\nNicosia",
+        total_cents=750,
+        created_at="2026-08-26",
+        items=[
+            OrderItem(product_name="Floral Glasses Case", quantity=1, unit_price_cents=400),
+        ],
+        status="shipped",
+        lookup_token="customer-order-token-12",
+        tracking_number="CY123456789CY",
+    )
+    body = shipped_email_body(order)
+    assert "has shipped" in body
+    assert "CY123456789CY" in body
+    assert "customer-order-token-12" in body
+    empty = shipped_email_body(_sample_order())
+    assert "was not added yet" in empty
+
+
+def test_notify_order_shipped_emails_customer(monkeypatch) -> None:
+    monkeypatch.delenv("SMTP_PASSWORD", raising=False)
+    monkeypatch.setenv("NOTIFY_EMAIL", "dimitrioupanagiotis@outlook.com")
+    monkeypatch.setenv("RESEND_API_KEY", "re_test_key")
+    captured: list[dict] = []
+
+    class FakeResp:
+        status = 200
+
+        def read(self) -> bytes:
+            return b'{"id":"email_1"}'
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    def fake_urlopen(req, timeout=None):
+        captured.append(json.loads(req.data.decode()))
+        return FakeResp()
+
+    monkeypatch.setattr("src.notify.urllib.request.urlopen", fake_urlopen)
+    order = Order(
+        id=12,
+        customer_name="Ada Lovelace",
+        customer_email="ada@example.com",
+        shipping_address="12 Engine St\nNicosia",
+        total_cents=750,
+        created_at="2026-08-26",
+        items=[
+            OrderItem(product_name="Floral Glasses Case", quantity=1, unit_price_cents=400),
+        ],
+        status="shipped",
+        lookup_token="customer-order-token-12",
+        tracking_number="CY123456789CY",
+    )
+    assert notify_order_shipped(order) is True
+    assert len(captured) == 1
+    assert captured[0]["to"] == ["ada@example.com"]
+    assert "shipped" in captured[0]["subject"].lower()
+    assert "CY123456789CY" in captured[0]["text"]
 
 
 def test_notify_sends_via_smtp(monkeypatch) -> None:

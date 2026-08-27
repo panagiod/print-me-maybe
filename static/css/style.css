@@ -761,7 +761,9 @@ img {
 }
 
 .order-shipping-email,
-.order-shipping-address {
+.order-shipping-address,
+.order-shipping-method,
+.order-tracking {
   color: var(--muted);
   margin: 0 0 0.35rem;
   overflow-wrap: anywhere;

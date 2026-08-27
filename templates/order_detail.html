@@ -18,6 +18,15 @@
     <p class="order-shipping-method">{{ order.shipping_label }}</p>
     {% endif %}
     <p class="order-shipping-address">{{ order.shipping_address }}</p>
+    {% if order.tracking_number %}
+    <p class="order-tracking">Tracking:
+      {% if order.tracking_number.lower().startswith("http://") or order.tracking_number.lower().startswith("https://") %}
+      <a href="{{ order.tracking_number }}">{{ order.tracking_number }}</a>
+      {% else %}
+      {{ order.tracking_number }}
+      {% endif %}
+    </p>
+    {% endif %}
   </section>
 
   <aside class="order-summary">
