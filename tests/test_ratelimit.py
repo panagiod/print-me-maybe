@@ -37,15 +37,15 @@ def test_admin_login_blocks_after_too_many_tries(monkeypatch) -> None:
     seed_products()
     client = TestClient(app)
     for _ in range(3):
-        denied = client.post("/admin/login", data={"password": "wrong"})
+        denied = client.post("/studio/login", data={"password": "wrong"})
         assert denied.status_code == 401
     assert len(alerts) == 1
     assert "login" in alerts[0].lower()
-    blocked = client.post("/admin/login", data={"password": "wrong"})
+    blocked = client.post("/studio/login", data={"password": "wrong"})
     assert blocked.status_code == 429
     assert blocked.headers.get("retry-after")
     assert "Too many attempts" in blocked.text
-    still_blocked = client.post("/admin/login", data={"password": "printmemaybe"})
+    still_blocked = client.post("/studio/login", data={"password": "printmemaybe"})
     assert still_blocked.status_code == 429
     assert len(alerts) == 1
 

@@ -220,9 +220,9 @@ def test_pay_success_creates_paid_order_from_metadata(tmp_path, monkeypatch) -> 
     assert "Payment received" in result.text
     assert "#1" in result.text
 
-    login = client.post("/admin/login", data={"password": "printmemaybe"}, follow_redirects=False)
+    login = client.post("/studio/login", data={"password": "printmemaybe"}, follow_redirects=False)
     assert login.status_code == 303
-    orders = client.get("/admin/orders")
+    orders = client.get("/studio/orders")
     assert "Paid" in orders.text
     assert "Ada Lovelace" in orders.text
 
@@ -494,10 +494,10 @@ def test_admin_cancel_refunds_paid_order_and_emails_customer(tmp_path, monkeypat
     monkeypatch.setattr("src.payments.urllib.request.urlopen", fake_urlopen)
     monkeypatch.setattr("src.notify.urllib.request.urlopen", fake_urlopen)
 
-    login = client.post("/admin/login", data={"password": "printmemaybe"}, follow_redirects=False)
+    login = client.post("/studio/login", data={"password": "printmemaybe"}, follow_redirects=False)
     assert login.status_code == 303
     result = client.post(
-        f"/admin/orders/{order_id}",
+        f"/studio/orders/{order_id}",
         data={"status": "cancelled", "notes": ""},
         follow_redirects=False,
     )
@@ -511,7 +511,7 @@ def test_admin_cancel_refunds_paid_order_and_emails_customer(tmp_path, monkeypat
     assert any(m.get("to") == ["paid@example.com"] for m in mail)
     assert any("has been refunded" in (m.get("text") or "") for m in mail)
 
-    page = client.get(f"/admin/orders/{order_id}")
+    page = client.get(f"/studio/orders/{order_id}")
     assert "Refunded" in page.text
     assert "Cancelled" in page.text
 
@@ -556,9 +556,9 @@ def test_admin_cancel_keeps_paid_order_if_refund_fails(tmp_path, monkeypatch) ->
         )
 
     monkeypatch.setattr("src.payments.urllib.request.urlopen", fake_urlopen)
-    client.post("/admin/login", data={"password": "printmemaybe"})
+    client.post("/studio/login", data={"password": "printmemaybe"})
     result = client.post(
-        f"/admin/orders/{order_id}",
+        f"/studio/orders/{order_id}",
         data={"status": "cancelled", "notes": ""},
     )
     assert result.status_code == 400

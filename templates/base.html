@@ -8,6 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/css/style.css">
+  <meta name="csrf-token" content="{{ csrf_token(request) }}">
 </head>
 <body>
   <header class="site-header">
@@ -18,11 +19,12 @@
       </a>
       <nav class="nav-links">
         {% if is_admin %}
-        <a href="/admin/orders" class="nav-link">Orders</a>
-        <a href="/admin/stock" class="nav-link">Stock</a>
-        <a href="/admin/genres" class="nav-link">Genres</a>
-        <a href="/admin/home" class="nav-link">Home</a>
-        <form action="/admin/logout" method="post" class="nav-form">
+        <a href="{{ studio_path }}/orders" class="nav-link">Orders</a>
+        <a href="{{ studio_path }}/stock" class="nav-link">Stock</a>
+        <a href="{{ studio_path }}/genres" class="nav-link">Genres</a>
+        <a href="{{ studio_path }}/home" class="nav-link">Home</a>
+        <form action="{{ studio_path }}/logout" method="post" class="nav-form">
+          {% include "_csrf.html" %}
           <button type="submit" class="nav-link nav-button">Log out</button>
         </form>
         {% else %}
@@ -51,6 +53,7 @@
     <div class="container footer-inner">
       <div class="footer-brands">
         <a href="https://www.instagram.com/print.me.maybe/" target="_blank" rel="noopener noreferrer">@print.me.maybe · 3D prints</a>
+        <a href="/privacy">Privacy</a>
       </div>
       <p>Made in Cyprus. Custom colours, names, and files via order notes or Instagram DM.</p>
     </div>

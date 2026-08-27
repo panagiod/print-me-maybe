@@ -46,6 +46,7 @@
     <p class="stock-note">{{ product.stock }} in stock</p>
 
     <form action="/cart/add" method="post" class="add-form detail-add-form">
+  {% include "_csrf.html" %}
       <input type="hidden" name="product_id" value="{{ product.id }}">
       <div class="qty-field">
         <label for="quantity" class="qty-label">Quantity</label>

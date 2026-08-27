@@ -37,6 +37,8 @@ DEFAULT_HOME_BANNER = (
 )
 HOME_TITLE_MAX = 120
 HOME_BANNER_MAX = 800
+HOME_EYEBROW_MAX = 40
+DEFAULT_HOME_EYEBROW = "Print Me Maybe"
 _GENRE_SELECT = """
     SELECT g.id, g.name, g.code_prefix, g.sort_order,
            (SELECT COUNT(*) FROM products p WHERE p.category = g.name) AS product_count
@@ -89,10 +91,14 @@ def ensure_shop_settings() -> None:
             "INSERT OR IGNORE INTO shop_settings (key, value) VALUES ('home_banner', ?)",
             (DEFAULT_HOME_BANNER,),
         )
+        conn.execute(
+            "INSERT OR IGNORE INTO shop_settings (key, value) VALUES ('home_eyebrow', ?)",
+            (DEFAULT_HOME_EYEBROW,),
+        )
 
 
-def get_home_copy() -> tuple[str, str]:
-    """Home page title and banner from SQLite."""
+def get_home_copy() -> tuple[str, str, str]:
+    """Home page eyebrow, title, and banner from SQLite."""
     with get_connection() as conn:
         title_row = conn.execute(
             "SELECT value FROM shop_settings WHERE key = 'home_title'"
@@ -100,23 +106,36 @@ def get_home_copy() -> tuple[str, str]:
         banner_row = conn.execute(
             "SELECT value FROM shop_settings WHERE key = 'home_banner'"
         ).fetchone()
+        eyebrow_row = conn.execute(
+            "SELECT value FROM shop_settings WHERE key = 'home_eyebrow'"
+        ).fetchone()
     title = (title_row["value"] if title_row else DEFAULT_HOME_TITLE).strip()
     banner = (banner_row["value"] if banner_row else DEFAULT_HOME_BANNER).strip()
-    return title or DEFAULT_HOME_TITLE, banner or DEFAULT_HOME_BANNER
+    eyebrow = (eyebrow_row["value"] if eyebrow_row else DEFAULT_HOME_EYEBROW).strip()
+    return (
+        title or DEFAULT_HOME_TITLE,
+        banner or DEFAULT_HOME_BANNER,
+        eyebrow or DEFAULT_HOME_EYEBROW,
+    )
 
 
-def save_home_copy(*, title: str, banner: str) -> None:
-    """Save studio edits to the home title and banner. Survives restart and deploy."""
+def save_home_copy(*, title: str, banner: str, eyebrow: str = "") -> None:
+    """Save studio edits to home copy. Survives restart and deploy."""
     cleaned_title = title.replace("\r\n", "\n").strip()
     cleaned_banner = banner.replace("\r\n", "\n").strip()
+    cleaned_eyebrow = eyebrow.replace("\r\n", "\n").strip()
     if not cleaned_title:
         raise ValueError("Title is required")
     if not cleaned_banner:
         raise ValueError("Banner text is required")
+    if not cleaned_eyebrow:
+        _title, _banner, cleaned_eyebrow = get_home_copy()
     if len(cleaned_title) > HOME_TITLE_MAX:
         raise ValueError(f"Title must be {HOME_TITLE_MAX} characters or fewer")
     if len(cleaned_banner) > HOME_BANNER_MAX:
         raise ValueError(f"Banner must be {HOME_BANNER_MAX} characters or fewer")
+    if len(cleaned_eyebrow) > HOME_EYEBROW_MAX:
+        raise ValueError(f"Eyebrow must be {HOME_EYEBROW_MAX} characters or fewer")
     with get_connection() as conn:
         conn.execute(
             """
@@ -132,15 +151,27 @@ def save_home_copy(*, title: str, banner: str) -> None:
             """,
             (cleaned_banner,),
         )
+        conn.execute(
+            """
+            INSERT INTO shop_settings (key, value) VALUES ('home_eyebrow', ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value
+            """,
+            (cleaned_eyebrow,),
+        )
 
 
-def list_products(category: str | None = None) -> list[Product]:
-    """Return listed, in-stock products, optionally filtered by category."""
+def list_products(category: str | None = None, q: str | None = None) -> list[Product]:
+    """Return listed, in-stock products, optionally filtered by category or search."""
     query = "SELECT * FROM products WHERE stock > 0 AND COALESCE(hidden, 0) = 0"
-    params: tuple[object, ...] = ()
+    params: list[object] = []
     if category:
         query += " AND category = ?"
-        params = (category,)
+        params.append(category)
+    needle = (q or "").strip()
+    if needle:
+        query += " AND (name LIKE ? OR description LIKE ? OR COALESCE(code, '') LIKE ?)"
+        like = f"%{needle}%"
+        params.extend([like, like, like])
     query += " ORDER BY category, name"
 
     with get_connection() as conn:

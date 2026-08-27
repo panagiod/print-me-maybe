@@ -196,11 +196,59 @@ img {
   white-space: pre-line;
 }
 
+.prose {
+  max-width: 40rem;
+}
+
+.prose h2 {
+  font-size: 1.05rem;
+  margin: 1.5rem 0 0.5rem;
+}
+
+.prose p {
+  color: var(--muted);
+  line-height: 1.55;
+  margin: 0 0 0.85rem;
+}
+
 .category-bar {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
   margin-bottom: 2rem;
+}
+
+.shop-search {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 1rem;
+}
+
+.shop-search label {
+  flex: 1 1 12rem;
+}
+
+.shop-search input[type="search"] {
+  width: 100%;
+  font: inherit;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  min-height: 44px;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .category-chip {

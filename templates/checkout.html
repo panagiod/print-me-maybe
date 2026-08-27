@@ -20,6 +20,7 @@
     data-greece-shipping-cents="{{ greece_shipping_cents }}"
     data-payments-on="{% if payments_on %}1{% else %}0{% endif %}"
   >
+  {% include "_csrf.html" %}
     <fieldset>
       <legend>Your details</legend>
       <label>
@@ -35,6 +36,7 @@
         <input type="tel" name="customer_phone" id="customer-phone" autocomplete="tel" value="{{ form_customer_phone or '' }}">
       </label>
       <p class="field-hint">Required for delivery so the courier can reach you. Optional for pick up.</p>
+      <p class="field-hint">We use your name, email, phone, and address to pack, ship, and email this order. Card payments go through Stripe. See <a href="/privacy">Privacy</a>.</p>
     </fieldset>
 
     <fieldset>

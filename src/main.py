@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Form, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
@@ -30,7 +30,14 @@ from src.models import (
 )
 from src.uploads import backfill_product_thumbs, image_thumb_url
 from src.ratelimit import RateLimitMiddleware
-from src.security import SecurityHeadersMiddleware, require_production_secrets, session_https_only, session_secret
+from src.security import (
+    SecurityHeadersMiddleware,
+    issue_csrf_token,
+    require_production_secrets,
+    session_https_only,
+    session_secret,
+    studio_path,
+)
 from src.seed import seed_products
 from src.fulfill import PaidCheckoutError, complete_paid_session
 from src.notify import mail_configured, schedule_order_email
@@ -73,6 +80,8 @@ app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 templates.env.globals["format_money"] = format_money
+templates.env.globals["studio_path"] = studio_path()
+templates.env.globals["csrf_token"] = issue_csrf_token
 templates.env.filters["thumb"] = image_thumb_url
 app.include_router(admin_router)
 
@@ -178,7 +187,7 @@ def health() -> dict[str, str | bool]:
     }
 
 
-@app.get("/media/products/{filename}")
+@app.api_route("/media/products/{filename}", methods=["GET", "HEAD"])
 def serve_product_image(filename: str) -> FileResponse:
     """Serve a photo uploaded from the studio admin (stored under DATA_DIR)."""
     safe = Path(filename).name
@@ -208,20 +217,23 @@ def _image_media_type(filename: str) -> str:
 
 
 @app.get("/", response_class=HTMLResponse)
-def home(request: Request, category: str | None = None) -> Any:
+def home(request: Request, category: str | None = None, q: str | None = None) -> Any:
     cart = get_cart(request)
-    home_title, home_banner = get_home_copy()
+    home_title, home_banner, home_eyebrow = get_home_copy()
+    needle = (q or "").strip()
     return templates.TemplateResponse(
         request,
         "index.html",
         {
-            "products": list_products(category),
+            "products": list_products(category, q=needle),
             "categories": list_categories(),
             "active_category": category,
+            "search_q": needle,
             "cart_count": cart_count(cart),
             "shop_name": shop_name(),
             "home_title": home_title,
             "home_banner": home_banner,
+            "home_eyebrow": home_eyebrow,
         },
     )
 
@@ -595,3 +607,51 @@ def api_products() -> JSONResponse:
         for p in products
     ]
     return JSONResponse(payload)
+
+
+def _public_origin(request: Request) -> str:
+    return (os.environ.get("SHOP_URL") or str(request.base_url)).rstrip("/")
+
+
+@app.get("/privacy", response_class=HTMLResponse)
+def privacy_page(request: Request) -> Any:
+    return templates.TemplateResponse(
+        request,
+        "privacy.html",
+        {
+            "cart_count": cart_count(get_cart(request)),
+            "shop_name": shop_name(),
+        },
+    )
+
+
+@app.get("/robots.txt")
+def robots_txt() -> Response:
+    studio = studio_path()
+    body = (
+        "User-agent: *\n"
+        "Allow: /\n"
+        f"Disallow: {studio}\n"
+        "Disallow: /admin\n"
+        "Disallow: /checkout\n"
+        "Disallow: /cart\n"
+        "Disallow: /order/\n"
+        "Sitemap: /sitemap.xml\n"
+    )
+    return Response(body, media_type="text/plain; charset=utf-8")
+
+
+@app.get("/sitemap.xml")
+def sitemap_xml(request: Request) -> Response:
+    origin = _public_origin(request)
+    urls = [f"{origin}/", f"{origin}/privacy"]
+    for product in list_products():
+        urls.append(f"{origin}/product/{product.slug}")
+    chunks = [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
+    ]
+    for loc in urls:
+        chunks.append(f"  <url><loc>{loc}</loc></url>")
+    chunks.append("</urlset>\n")
+    return Response("\n".join(chunks), media_type="application/xml")

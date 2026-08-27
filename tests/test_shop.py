@@ -63,6 +63,9 @@ def test_health_and_catalog() -> None:
     assert "Pokemon" in home.text
     assert "Toys" in home.text
     assert 'aria-label="Genres"' in home.text
+    assert 'name="q"' in home.text
+    assert '<p class="hero-eyebrow">Print Me Maybe</p>' in home.text
+    assert 'href="/privacy"' in home.text
 
     api = client.get("/api/products")
     assert api.status_code == 200
@@ -192,6 +195,7 @@ def test_category_filter() -> None:
     rings = client.get("/?category=Lord of the Rings")
     assert rings.status_code == 200
     assert "Minas Tirith" in rings.text
+    assert "Articulated Dragon" not in rings.text
     assert "Floral Glasses Case" not in rings.text
 
     household = client.get("/?category=Household")
@@ -206,7 +210,9 @@ def test_category_filter() -> None:
 
     toys = client.get("/?category=Toys")
     assert toys.status_code == 200
-    assert "No products in this genre right now." in toys.text
+    assert "Articulated Dragon" in toys.text
+    assert "Dragon Egg" in toys.text
+    assert "Minas Tirith" not in toys.text
 
 
 def test_admin_can_add_rename_and_remove_genres() -> None:
@@ -216,25 +222,25 @@ def test_admin_can_add_rename_and_remove_genres() -> None:
     seed_products()
     client = TestClient(app)
 
-    guest = client.get("/admin/genres", follow_redirects=False)
+    guest = client.get("/studio/genres", follow_redirects=False)
     assert guest.status_code == 303
 
-    client.post("/admin/login", data={"password": "printmemaybe"})
-    page = client.get("/admin/genres")
+    client.post("/studio/login", data={"password": "printmemaybe"})
+    page = client.get("/studio/genres")
     assert page.status_code == 200
     assert "Harry Potter" in page.text
     assert "Toys" in page.text
-    assert 'href="/admin/genres"' in page.text
+    assert 'href="/studio/genres"' in page.text
 
     created = client.post(
-        "/admin/genres",
+        "/studio/genres",
         data={"name": "Star Wars", "code_prefix": "sw"},
         follow_redirects=False,
     )
     assert created.status_code == 303
     home = client.get("/")
     assert "Star Wars" in home.text
-    new_form = client.get("/admin/products/new")
+    new_form = client.get("/studio/products/new")
     assert 'value="Star Wars"' in new_form.text
 
     wars = next(genre for genre in list_genres() if genre.name == "Star Wars")
@@ -251,7 +257,7 @@ def test_admin_can_add_rename_and_remove_genres() -> None:
     assert saber.code.startswith("SW-")
 
     renamed = client.post(
-        f"/admin/genres/{wars.id}/edit",
+        f"/studio/genres/{wars.id}/edit",
         data={"name": "Star Wars Saga", "code_prefix": "SW"},
         follow_redirects=False,
     )
@@ -261,13 +267,13 @@ def test_admin_can_add_rename_and_remove_genres() -> None:
     home = client.get("/")
     assert "Star Wars Saga" in home.text
 
-    blocked = client.post(f"/admin/genres/{wars.id}/delete", follow_redirects=False)
+    blocked = client.post(f"/studio/genres/{wars.id}/delete", follow_redirects=False)
     assert blocked.status_code == 400
     assert "Move" in blocked.text
 
     household = next(genre for genre in list_genres() if genre.name == "Household")
     moved = client.post(
-        f"/admin/genres/{wars.id}/delete",
+        f"/studio/genres/{wars.id}/delete",
         data={"move_to": str(household.id)},
         follow_redirects=False,
     )
@@ -276,14 +282,14 @@ def test_admin_can_add_rename_and_remove_genres() -> None:
     assert saber.category == "Household"
     assert "Star Wars Saga" not in client.get("/").text
 
-    client.post("/admin/genres", data={"name": "Temp", "code_prefix": "TMP"})
+    client.post("/studio/genres", data={"name": "Temp", "code_prefix": "TMP"})
     temp = next(genre for genre in list_genres() if genre.name == "Temp")
-    gone = client.post(f"/admin/genres/{temp.id}/delete", follow_redirects=False)
+    gone = client.post(f"/studio/genres/{temp.id}/delete", follow_redirects=False)
     assert gone.status_code == 303
     assert all(genre.name != "Temp" for genre in list_genres())
 
     duplicate = client.post(
-        "/admin/genres",
+        "/studio/genres",
         data={"name": "Household", "code_prefix": "HH2"},
         follow_redirects=False,
     )
@@ -296,20 +302,21 @@ def test_admin_home_copy_saved_in_database() -> None:
     seed_products()
     client = TestClient(app)
 
-    guest = client.get("/admin/home", follow_redirects=False)
+    guest = client.get("/studio/home", follow_redirects=False)
     assert guest.status_code == 303
 
-    client.post("/admin/login", data={"password": "printmemaybe"})
-    page = client.get("/admin/home")
+    client.post("/studio/login", data={"password": "printmemaybe"})
+    page = client.get("/studio/home")
     assert page.status_code == 200
     assert "Personalized 3D prints" in page.text
     assert "Made in Cyprus" in page.text
 
     saved = client.post(
-        "/admin/home",
+        "/studio/home",
         data={
             "title": "Custom prints for your shelf.",
             "banner": "Studio banner from admin. Pickup in Cyprus.",
+            "eyebrow": "Studio label",
         },
         follow_redirects=False,
     )
@@ -317,6 +324,7 @@ def test_admin_home_copy_saved_in_database() -> None:
     home = client.get("/")
     assert "Custom prints for your shelf." in home.text
     assert "Studio banner from admin. Pickup in Cyprus." in home.text
+    assert '<p class="hero-eyebrow">Studio label</p>' in home.text
     assert "Personalized 3D prints" not in home.text
 
     seed_products()
@@ -325,7 +333,7 @@ def test_admin_home_copy_saved_in_database() -> None:
     assert "Personalized 3D prints" not in home.text
 
     blank = client.post(
-        "/admin/home",
+        "/studio/home",
         data={"title": "  ", "banner": "Still a banner."},
         follow_redirects=False,
     )
@@ -489,9 +497,9 @@ def test_admin_requires_login() -> None:
     seed_products()
 
     client = TestClient(app)
-    listing = client.get("/admin/orders", follow_redirects=False)
+    listing = client.get("/studio/orders", follow_redirects=False)
     assert listing.status_code == 303
-    assert listing.headers["location"] == "/admin/login"
+    assert listing.headers["location"] == "/studio/login"
 
 
 def test_admin_orders_and_stock() -> None:
@@ -516,16 +524,16 @@ def test_admin_orders_and_stock() -> None:
     assert "Thank you" in checkout.text
     order_id = checkout.text.split("#")[1].split("<")[0]
 
-    denied = client.post("/admin/login", data={"password": "wrong"}, follow_redirects=False)
+    denied = client.post("/studio/login", data={"password": "wrong"}, follow_redirects=False)
     assert denied.status_code == 401
 
-    login = client.post("/admin/login", data={"password": "printmemaybe"}, follow_redirects=False)
+    login = client.post("/studio/login", data={"password": "printmemaybe"}, follow_redirects=False)
     assert login.status_code == 303
 
-    orders = client.get("/admin/orders")
+    orders = client.get("/studio/orders")
     assert orders.status_code == 200
     assert "Ada Lovelace" in orders.text
-    assert f">{order_id}<" in orders.text or f"/admin/orders/{order_id}" in orders.text
+    assert f">{order_id}<" in orders.text or f"/studio/orders/{order_id}" in orders.text
     assert 'data-label="Customer"' in orders.text
     assert 'data-label="Ship"' in orders.text
     assert "table-wrap" in orders.text
@@ -537,13 +545,13 @@ def test_admin_orders_and_stock() -> None:
     assert "RESEND_API_KEY" in orders.text
 
     save = client.post(
-        f"/admin/orders/{order_id}",
+        f"/studio/orders/{order_id}",
         data={"status": "in_progress", "notes": "DM received for custom name"},
         follow_redirects=False,
     )
     assert save.status_code == 303
 
-    detail = client.get(f"/admin/orders/{order_id}")
+    detail = client.get(f"/studio/orders/{order_id}")
     assert detail.status_code == 200
     assert "In progress" in detail.text
     assert "DM received for custom name" in detail.text
@@ -554,13 +562,13 @@ def test_admin_orders_and_stock() -> None:
     assert "refunds through Stripe" in detail.text
     assert "+357 99 123456" in detail.text
 
-    stock_page = client.get("/admin/stock")
+    stock_page = client.get("/studio/stock")
     assert stock_page.status_code == 200
     assert glasses["name"] in stock_page.text
     assert "Add product" in stock_page.text
     assert "admin-catalog" in stock_page.text
 
-    client.post(f"/admin/stock/{glasses['id']}", data={"stock": "0"})
+    client.post(f"/studio/stock/{glasses['id']}", data={"stock": "0"})
     hidden = client.get("/api/products").json()
     assert all(p["id"] != glasses["id"] for p in hidden)
 
@@ -587,20 +595,20 @@ def test_cancel_restocks_and_reopen_deducts() -> None:
     after_order = next(p for p in list_all_products() if p.slug == "glasses-case").stock
     assert after_order == before - 1
 
-    client.post("/admin/login", data={"password": "printmemaybe"})
+    client.post("/studio/login", data={"password": "printmemaybe"})
     client.post(
-        f"/admin/orders/{order_id}",
+        f"/studio/orders/{order_id}",
         data={"status": "cancelled", "notes": ""},
     )
     after_cancel = next(p for p in list_all_products() if p.slug == "glasses-case").stock
     assert after_cancel == before
-    cancelled = client.get(f"/admin/orders/{order_id}")
+    cancelled = client.get(f"/studio/orders/{order_id}")
     assert "Cancelled" in cancelled.text
     assert "Unpaid" in cancelled.text
     assert 'status-refunded' not in cancelled.text
 
     client.post(
-        f"/admin/orders/{order_id}",
+        f"/studio/orders/{order_id}",
         data={"status": "in_progress", "notes": ""},
     )
     after_reopen = next(p for p in list_all_products() if p.slug == "glasses-case").stock
@@ -629,9 +637,9 @@ def test_shipped_tracking_number_shows_on_customer_page() -> None:
     order_id = checkout.text.split("#")[1].split("<")[0]
     token = checkout.text.split('href="/order/')[1].split('"')[0]
 
-    client.post("/admin/login", data={"password": "printmemaybe"})
+    client.post("/studio/login", data={"password": "printmemaybe"})
     save = client.post(
-        f"/admin/orders/{order_id}",
+        f"/studio/orders/{order_id}",
         data={
             "status": "shipped",
             "notes": "",
@@ -645,7 +653,7 @@ def test_shipped_tracking_number_shows_on_customer_page() -> None:
     assert order.status == "shipped"
     assert order.tracking_number == "CY123456789CY"
 
-    admin_page = client.get(f"/admin/orders/{order_id}")
+    admin_page = client.get(f"/studio/orders/{order_id}")
     assert "CY123456789CY" in admin_page.text
     assert "Shipped" in admin_page.text
 
@@ -682,7 +690,7 @@ def test_admin_add_product_shows_in_shop() -> None:
 
     client = TestClient(app)
     guest = client.post(
-        "/admin/products",
+        "/studio/products",
         data={
             "name": "Studio Test Vase",
             "description": "A custom 3D vase.",
@@ -693,11 +701,11 @@ def test_admin_add_product_shows_in_shop() -> None:
         follow_redirects=False,
     )
     assert guest.status_code == 303
-    assert guest.headers["location"] == "/admin/login"
+    assert guest.headers["location"] == "/studio/login"
 
-    client.post("/admin/login", data={"password": "printmemaybe"})
+    client.post("/studio/login", data={"password": "printmemaybe"})
     created = client.post(
-        "/admin/products",
+        "/studio/products",
         data={
             "name": "Studio Test Vase",
             "description": "A custom 3D vase.",
@@ -709,7 +717,7 @@ def test_admin_add_product_shows_in_shop() -> None:
         follow_redirects=False,
     )
     assert created.status_code == 303
-    assert created.headers["location"] == "/admin/stock?added=1"
+    assert created.headers["location"] == "/studio/stock?added=1"
 
     product = next(p for p in list_all_products() if p.slug == "studio-test-vase")
     assert product.price_cents == 1250
@@ -738,14 +746,14 @@ def test_admin_edit_product() -> None:
     seed_products()
 
     client = TestClient(app)
-    client.post("/admin/login", data={"password": "printmemaybe"})
+    client.post("/studio/login", data={"password": "printmemaybe"})
     product = next(p for p in list_all_products() if p.slug == "glasses-case")
-    page = client.get(f"/admin/products/{product.id}/edit")
+    page = client.get(f"/studio/products/{product.id}/edit")
     assert page.status_code == 200
     assert product.name in page.text
 
     saved = client.post(
-        f"/admin/products/{product.id}/edit",
+        f"/studio/products/{product.id}/edit",
         data={
             "name": "Floral Case Updated",
             "description": "Updated description.",
@@ -771,9 +779,9 @@ def test_admin_delete_product() -> None:
     seed_products()
 
     client = TestClient(app)
-    client.post("/admin/login", data={"password": "printmemaybe"})
+    client.post("/studio/login", data={"password": "printmemaybe"})
     created = client.post(
-        "/admin/products",
+        "/studio/products",
         data={
             "name": "Delete Me Mug",
             "description": "Temporary product.",
@@ -787,7 +795,7 @@ def test_admin_delete_product() -> None:
 
     product = next(p for p in list_all_products() if p.slug == "delete-me-mug")
     deleted = client.post(
-        f"/admin/products/{product.id}/delete",
+        f"/studio/products/{product.id}/delete",
         follow_redirects=False,
     )
     assert deleted.status_code == 303
@@ -811,8 +819,8 @@ def test_admin_cannot_delete_ordered_product() -> None:
         },
     )
 
-    client.post("/admin/login", data={"password": "printmemaybe"})
-    blocked = client.post(f"/admin/products/{glasses['id']}/delete")
+    client.post("/studio/login", data={"password": "printmemaybe"})
+    blocked = client.post(f"/studio/products/{glasses['id']}/delete")
     assert blocked.status_code == 400
     assert "ordered" in blocked.text.lower()
     assert any(p.id == glasses["id"] for p in list_all_products())
@@ -823,9 +831,9 @@ def test_admin_add_product_rejects_bad_price() -> None:
     seed_products()
 
     client = TestClient(app)
-    client.post("/admin/login", data={"password": "printmemaybe"})
+    client.post("/studio/login", data={"password": "printmemaybe"})
     bad = client.post(
-        "/admin/products",
+        "/studio/products",
         data={
             "name": "Broken Price",
             "description": "Should not save.",
@@ -977,21 +985,21 @@ def test_order_list_search_and_shipping_filter() -> None:
             "customer_phone": "+30 210 1234567",
         },
     )
-    client.post("/admin/login", data={"password": "printmemaybe"})
-    search = client.get("/admin/orders?q=Eleni")
+    client.post("/studio/login", data={"password": "printmemaybe"})
+    search = client.get("/studio/orders?q=Eleni")
     assert "Eleni Search" in search.text
     assert "Nicos Courier" not in search.text
-    pickup = client.get("/admin/orders?shipping=pickup")
+    pickup = client.get("/studio/orders?shipping=pickup")
     assert "Eleni Search" in pickup.text
     assert "Nicos Courier" not in pickup.text
-    cyprus = client.get("/admin/orders?shipping=cyprus")
+    cyprus = client.get("/studio/orders?shipping=cyprus")
     assert "Nicos Courier" in cyprus.text
     assert "Eleni Search" not in cyprus.text
     assert "Athens Friend" not in cyprus.text
-    greece = client.get("/admin/orders?shipping=greece")
+    greece = client.get("/studio/orders?shipping=greece")
     assert "Athens Friend" in greece.text
     assert "Nicos Courier" not in greece.text
-    assert "Greece delivery" in client.get("/admin/orders").text
+    assert "Greece delivery" in client.get("/studio/orders").text
 
 
 def test_order_list_date_filter_and_sort() -> None:
@@ -1041,14 +1049,14 @@ def test_order_list_date_filter_and_sort() -> None:
     newest = list_orders(sort="newest")
     assert [order.customer_name for order in newest] == ["Nicosia Late", "Nicosia Early"]
 
-    client.post("/admin/login", data={"password": "printmemaybe"})
-    filtered = client.get("/admin/orders?from=2026-08-20&to=2026-08-20")
+    client.post("/studio/login", data={"password": "printmemaybe"})
+    filtered = client.get("/studio/orders?from=2026-08-20&to=2026-08-20")
     assert "Nicosia Early" in filtered.text
     assert "Nicosia Late" not in filtered.text
     assert "2026-08-20" in filtered.text
-    oldest_page = client.get("/admin/orders?sort=oldest")
+    oldest_page = client.get("/studio/orders?sort=oldest")
     assert oldest_page.text.find("Nicosia Early") < oldest_page.text.find("Nicosia Late")
-    newest_page = client.get("/admin/orders")
+    newest_page = client.get("/studio/orders")
     assert newest_page.text.find("Nicosia Late") < newest_page.text.find("Nicosia Early")
 
 
@@ -1076,66 +1084,66 @@ def test_archive_completed_and_cancelled_orders() -> None:
     open_id = place("Still Open")
     shipped_id = place("Ship Done")
     cancelled_id = place("Cancel Done")
-    client.post("/admin/login", data={"password": "printmemaybe"})
-    client.post(f"/admin/orders/{shipped_id}", data={"status": "shipped", "notes": ""})
-    client.post(f"/admin/orders/{cancelled_id}", data={"status": "cancelled", "notes": ""})
+    client.post("/studio/login", data={"password": "printmemaybe"})
+    client.post(f"/studio/orders/{shipped_id}", data={"status": "shipped", "notes": ""})
+    client.post(f"/studio/orders/{cancelled_id}", data={"status": "cancelled", "notes": ""})
 
-    blocked = client.post(f"/admin/orders/{open_id}/archive")
+    blocked = client.post(f"/studio/orders/{open_id}/archive")
     assert blocked.status_code == 400
     assert "shipped or cancelled" in blocked.text.lower()
     with pytest.raises(ValueError, match="shipped or cancelled"):
         set_order_archived(open_id, True)
 
-    archived = client.post(f"/admin/orders/{shipped_id}/archive", follow_redirects=False)
+    archived = client.post(f"/studio/orders/{shipped_id}/archive", follow_redirects=False)
     assert archived.status_code == 303
-    inbox = client.get("/admin/orders")
+    inbox = client.get("/studio/orders")
     assert "Ship Done" not in inbox.text
     assert "Still Open" in inbox.text
     assert "Cancel Done" in inbox.text
     assert "Archive shipped and cancelled in this view (1)" in inbox.text
-    shipped = client.get("/admin/orders?status=shipped")
+    shipped = client.get("/studio/orders?status=shipped")
     assert "Ship Done" not in shipped.text
     assert "Cancel Done" not in shipped.text
-    cancelled = client.get("/admin/orders?status=cancelled")
+    cancelled = client.get("/studio/orders?status=cancelled")
     assert "Cancel Done" in cancelled.text
     assert "Ship Done" not in cancelled.text
     stored = get_order(shipped_id)
     assert stored is not None and stored.archived is True
-    archive_list = client.get("/admin/orders?archived=1")
+    archive_list = client.get("/studio/orders?archived=1")
     assert "Ship Done" in archive_list.text
     assert "Still Open" not in archive_list.text
     assert 'aria-label="Order status"' not in archive_list.text
-    leftover_status = client.get("/admin/orders?archived=1&status=cancelled")
+    leftover_status = client.get("/studio/orders?archived=1&status=cancelled")
     assert "Ship Done" in leftover_status.text
     assert "Cancel Done" not in leftover_status.text
-    detail = client.get(f"/admin/orders/{shipped_id}")
+    detail = client.get(f"/studio/orders/{shipped_id}")
     assert "Archived" in detail.text
     assert "Restore to inbox" in detail.text
 
-    bulk = client.post("/admin/orders/archive-done", follow_redirects=False)
+    bulk = client.post("/studio/orders/archive-done", follow_redirects=False)
     assert bulk.status_code == 303
-    inbox = client.get("/admin/orders")
+    inbox = client.get("/studio/orders")
     assert "Cancel Done" not in inbox.text
     assert "Still Open" in inbox.text
     assert "No orders" not in inbox.text
-    cancelled = client.get("/admin/orders?status=cancelled")
+    cancelled = client.get("/studio/orders?status=cancelled")
     assert "Cancel Done" not in cancelled.text
-    archive_list = client.get("/admin/orders?archived=1")
+    archive_list = client.get("/studio/orders?archived=1")
     assert "Cancel Done" in archive_list.text
     assert "Ship Done" in archive_list.text
 
-    restored = client.post(f"/admin/orders/{shipped_id}/unarchive", follow_redirects=False)
+    restored = client.post(f"/studio/orders/{shipped_id}/unarchive", follow_redirects=False)
     assert restored.status_code == 303
-    inbox = client.get("/admin/orders")
+    inbox = client.get("/studio/orders")
     assert "Ship Done" in inbox.text
 
-    client.post(f"/admin/orders/{shipped_id}/archive")
-    client.post(f"/admin/orders/{shipped_id}", data={"status": "in_progress", "notes": ""})
+    client.post(f"/studio/orders/{shipped_id}/archive")
+    client.post(f"/studio/orders/{shipped_id}", data={"status": "in_progress", "notes": ""})
     reopened = get_order(shipped_id)
     assert reopened is not None
     assert reopened.status == "in_progress"
     assert reopened.archived is False
-    inbox = client.get("/admin/orders")
+    inbox = client.get("/studio/orders")
     assert "Ship Done" in inbox.text
 
 
@@ -1159,9 +1167,9 @@ def test_cannot_reopen_refunded_order() -> None:
 
     update_order_status(order_id, "cancelled")
     set_payment_status(order_id, "refunded")
-    client.post("/admin/login", data={"password": "printmemaybe"})
+    client.post("/studio/login", data={"password": "printmemaybe"})
     reopen = client.post(
-        f"/admin/orders/{order_id}",
+        f"/studio/orders/{order_id}",
         data={"status": "in_progress", "notes": ""},
     )
     assert reopen.status_code == 400
@@ -1188,10 +1196,10 @@ def test_rename_does_not_change_past_order_names() -> None:
         },
     )
     order_id = int(checkout.text.split("#")[1].split("<")[0])
-    client.post("/admin/login", data={"password": "printmemaybe"})
+    client.post("/studio/login", data={"password": "printmemaybe"})
     product = next(p for p in list_all_products() if p.id == glasses["id"])
     client.post(
-        f"/admin/products/{product.id}/edit",
+        f"/studio/products/{product.id}/edit",
         data={
             "name": "Renamed Glasses",
             "description": product.description,
@@ -1203,7 +1211,7 @@ def test_rename_does_not_change_past_order_names() -> None:
     order = get_order(order_id)
     assert order is not None
     assert order.items[0].product_name == original_name
-    admin_page = client.get(f"/admin/orders/{order_id}")
+    admin_page = client.get(f"/studio/orders/{order_id}")
     assert original_name in admin_page.text
     assert "Renamed Glasses" not in admin_page.text
 
@@ -1231,9 +1239,9 @@ def test_mark_paid_cash_and_cancel_skips_stripe(monkeypatch) -> None:
         raise AssertionError("Stripe should not be called for cash payments")
 
     monkeypatch.setattr("src.payments.urllib.request.urlopen", boom)
-    client.post("/admin/login", data={"password": "printmemaybe"})
+    client.post("/studio/login", data={"password": "printmemaybe"})
     marked = client.post(
-        f"/admin/orders/{order_id}/mark-paid",
+        f"/studio/orders/{order_id}/mark-paid",
         follow_redirects=False,
     )
     assert marked.status_code == 303
@@ -1242,7 +1250,7 @@ def test_mark_paid_cash_and_cancel_skips_stripe(monkeypatch) -> None:
     assert order.paid
     assert order.payment_method == "cash"
     cancelled = client.post(
-        f"/admin/orders/{order_id}",
+        f"/studio/orders/{order_id}",
         data={"status": "cancelled", "notes": ""},
         follow_redirects=False,
     )
@@ -1277,16 +1285,16 @@ def test_ready_status_emails_customer_once(monkeypatch) -> None:
         },
     )
     order_id = int(checkout.text.split("#")[1].split("<")[0])
-    client.post("/admin/login", data={"password": "printmemaybe"})
+    client.post("/studio/login", data={"password": "printmemaybe"})
     first = client.post(
-        f"/admin/orders/{order_id}",
+        f"/studio/orders/{order_id}",
         data={"status": "ready", "notes": ""},
         follow_redirects=False,
     )
     assert first.status_code == 303
     assert "mail=sent" in first.headers["location"]
     second = client.post(
-        f"/admin/orders/{order_id}",
+        f"/studio/orders/{order_id}",
         data={"status": "ready", "notes": ""},
         follow_redirects=False,
     )
@@ -1314,9 +1322,9 @@ def test_delivery_shipped_without_tracking_needs_number() -> None:
         },
     )
     order_id = int(checkout.text.split("#")[1].split("<")[0])
-    client.post("/admin/login", data={"password": "printmemaybe"})
+    client.post("/studio/login", data={"password": "printmemaybe"})
     save = client.post(
-        f"/admin/orders/{order_id}",
+        f"/studio/orders/{order_id}",
         data={"status": "shipped", "notes": "", "tracking_number": ""},
         follow_redirects=False,
     )
@@ -1345,8 +1353,8 @@ def test_packing_slip_and_nicosia_time() -> None:
         },
     )
     order_id = int(checkout.text.split("#")[1].split("<")[0])
-    client.post("/admin/login", data={"password": "printmemaybe"})
-    slip = client.get(f"/admin/orders/{order_id}/print")
+    client.post("/studio/login", data={"password": "printmemaybe"})
+    slip = client.get(f"/studio/orders/{order_id}/print")
     assert slip.status_code == 200
     assert "Packing slip" in slip.text
     assert "Print Me" in slip.text
@@ -1354,7 +1362,7 @@ def test_packing_slip_and_nicosia_time() -> None:
     from src.store import set_product_stock
 
     set_product_stock(glasses["id"], 0)
-    stock = client.get("/admin/stock")
+    stock = client.get("/studio/stock")
     assert "stock-zero" in stock.text
     assert 'data-confirm="Remove' in stock.text
     assert "/static/js/admin.js" in stock.text
@@ -1364,24 +1372,24 @@ def test_admin_catalog_search_and_hide() -> None:
     init_schema()
     seed_products()
     client = TestClient(app)
-    client.post("/admin/login", data={"password": "printmemaybe"})
-    stock = client.get("/admin/stock")
+    client.post("/studio/login", data={"password": "printmemaybe"})
+    stock = client.get("/studio/stock")
     assert stock.status_code == 200
     assert "Floral Glasses Case" in stock.text
     assert "admin-catalog" in stock.text
     assert "Add product" in stock.text
     assert "/static/js/htmx.min.js" in stock.text
-    search = client.get("/admin/stock?q=Glasses")
+    search = client.get("/studio/stock?q=Glasses")
     assert "Floral Glasses Case" in search.text
     assert "Minas Tirith" not in search.text
-    by_code = client.get("/admin/stock?q=3D-GLASSES")
+    by_code = client.get("/studio/stock?q=HH-GLASSES")
     assert "Floral Glasses Case" in by_code.text
     assert "Minas Tirith" not in by_code.text
     glasses = next(p for p in list_all_products() if p.slug == "glasses-case")
-    assert glasses.code == "3D-GLASSES"
+    assert glasses.code == "HH-GLASSES"
     assert glasses.listed
     hidden = client.post(
-        f"/admin/products/{glasses.id}/hide",
+        f"/studio/products/{glasses.id}/hide",
         follow_redirects=False,
     )
     assert hidden.status_code == 303
@@ -1389,12 +1397,12 @@ def test_admin_catalog_search_and_hide() -> None:
     assert "Floral Glasses Case" not in home.text
     assert client.get(f"/product/{glasses.slug}").status_code == 404
     assert glasses.id not in {p["id"] for p in client.get("/api/products").json()}
-    listed_only = client.get("/admin/stock?visibility=listed")
+    listed_only = client.get("/studio/stock?visibility=listed")
     assert "Floral Glasses Case" not in listed_only.text
-    hidden_only = client.get("/admin/stock?visibility=hidden")
+    hidden_only = client.get("/studio/stock?visibility=hidden")
     assert "Floral Glasses Case" in hidden_only.text
     assert "Hidden" in hidden_only.text
-    client.post(f"/admin/products/{glasses.id}/show")
+    client.post(f"/studio/products/{glasses.id}/show")
     home = client.get("/")
     assert "Floral Glasses Case" in home.text
 
@@ -1403,13 +1411,13 @@ def test_admin_add_page_and_multiple_photos() -> None:
     init_schema()
     seed_products()
     client = TestClient(app)
-    client.post("/admin/login", data={"password": "printmemaybe"})
-    page = client.get("/admin/products/new")
+    client.post("/studio/login", data={"password": "printmemaybe"})
+    page = client.get("/studio/products/new")
     assert page.status_code == 200
     assert 'name="images"' in page.text
     assert "multiple" in page.text
     created = client.post(
-        "/admin/products",
+        "/studio/products",
         data={
             "name": "Gallery Dragon",
             "description": "Two photos.",
@@ -1449,18 +1457,18 @@ def test_admin_add_page_and_multiple_photos() -> None:
     assert ".product-card-gallery .gallery-viewport" in css
     assert css.count("aspect-ratio: 1") >= 3
     assert ".product-body .add-form" in css
-    edit = client.get(f"/admin/products/{product.id}/edit")
+    edit = client.get(f"/studio/products/{product.id}/edit")
     assert "Cover" in edit.text
     assert product.gallery[0].thumb_url in edit.text
     cover = client.post(
-        f"/admin/products/{product.id}/images/{product.gallery[1].id}/cover",
+        f"/studio/products/{product.id}/images/{product.gallery[1].id}/cover",
         follow_redirects=False,
     )
     assert cover.status_code == 303
     updated = next(p for p in list_all_products() if p.id == product.id)
     assert updated.gallery[0].id == product.gallery[1].id
     removed = client.post(
-        f"/admin/products/{product.id}/images/{updated.gallery[0].id}/delete",
+        f"/studio/products/{product.id}/images/{updated.gallery[0].id}/delete",
         follow_redirects=False,
     )
     assert removed.status_code == 303
@@ -1483,11 +1491,11 @@ def test_hide_instead_when_delete_blocked() -> None:
             "shipping_method": "pickup",
         },
     )
-    client.post("/admin/login", data={"password": "printmemaybe"})
-    blocked = client.post(f"/admin/products/{glasses['id']}/delete")
+    client.post("/studio/login", data={"password": "printmemaybe"})
+    blocked = client.post(f"/studio/products/{glasses['id']}/delete")
     assert blocked.status_code == 400
     assert "Hide" in blocked.text
-    assert f"/admin/products/{glasses['id']}/hide" in blocked.text
+    assert f"/studio/products/{glasses['id']}/hide" in blocked.text
 
 
 def test_product_codes_on_stock_orders_and_slips() -> None:
@@ -1496,9 +1504,9 @@ def test_product_codes_on_stock_orders_and_slips() -> None:
     init_schema()
     seed_products()
     client = TestClient(app)
-    client.post("/admin/login", data={"password": "printmemaybe"})
+    client.post("/studio/login", data={"password": "printmemaybe"})
     glasses = next(p for p in list_all_products() if p.slug == "glasses-case")
-    assert glasses.code == "3D-GLASSES"
+    assert glasses.code == "HH-GLASSES"
 
     with pytest.raises(ValueError, match="Choose a genre"):
         create_product(
@@ -1529,7 +1537,7 @@ def test_product_codes_on_stock_orders_and_slips() -> None:
             category="Household",
             stock=4,
             image_url="/static/images/products/placeholder.svg",
-            code="lc-board",
+            code="hh-glasses",
         )
 
     created = create_product(
@@ -1565,11 +1573,54 @@ def test_product_codes_on_stock_orders_and_slips() -> None:
     order_id = int(checkout.text.split("#")[1].split("<")[0])
     order = get_order(order_id)
     assert order is not None
-    assert order.items[0].product_code == "3D-GLASSES"
-    found = client.get("/admin/orders?q=3D-GLASSES")
+    assert order.items[0].product_code == "HH-GLASSES"
+    found = client.get("/studio/orders?q=HH-GLASSES")
     assert "Code Buyer" in found.text
-    detail = client.get(f"/admin/orders/{order_id}")
-    assert "3D-GLASSES" in detail.text
-    slip = client.get(f"/admin/orders/{order_id}/print")
-    assert "3D-GLASSES" in slip.text
+    detail = client.get(f"/studio/orders/{order_id}")
+    assert "HH-GLASSES" in detail.text
+    slip = client.get(f"/studio/orders/{order_id}/print")
+    assert "HH-GLASSES" in slip.text
+
+
+def test_shop_search_filters_listings() -> None:
+    init_schema()
+    seed_products()
+    client = TestClient(app)
+    found = client.get("/?q=dragon")
+    assert found.status_code == 200
+    assert "Articulated Dragon" in found.text
+    assert "Floral Glasses Case" not in found.text
+    empty = client.get("/?q=zzzz-no-such-print")
+    assert "No prints match that search." in empty.text
+
+
+def test_privacy_robots_and_sitemap() -> None:
+    init_schema()
+    seed_products()
+    client = TestClient(app)
+    privacy = client.get("/privacy")
+    assert privacy.status_code == 200
+    assert "Stripe" in privacy.text
+    glasses = next(p for p in list_all_products() if p.slug == "glasses-case")
+    client.post("/cart/add", data={"product_id": glasses.id, "quantity": 1})
+    checkout = client.get("/checkout")
+    assert 'href="/privacy"' in checkout.text
+    assert "We use your name, email, phone, and address" in checkout.text
+    robots = client.get("/robots.txt")
+    assert robots.status_code == 200
+    assert "Disallow: /studio" in robots.text
+    assert "Disallow: /admin" in robots.text
+    sitemap = client.get("/sitemap.xml")
+    assert sitemap.status_code == 200
+    assert "/privacy" in sitemap.text
+    assert "/product/glasses-case" in sitemap.text
+    assert "/studio" not in sitemap.text
+
+
+def test_old_admin_path_is_not_found() -> None:
+    init_schema()
+    seed_products()
+    client = TestClient(app)
+    assert client.get("/admin/login").status_code == 404
+    assert client.get("/admin/orders").status_code == 404
 

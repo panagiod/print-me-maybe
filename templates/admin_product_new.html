@@ -3,14 +3,15 @@
 {% block title %}Add product — {{ shop_name }}{% endblock %}
 
 {% block content %}
-<p class="breadcrumb"><a href="/admin/stock">Stock</a> / Add</p>
+<p class="breadcrumb"><a href="{{ studio_path }}/stock">Stock</a> / Add</p>
 <h1 class="page-title">Add a product</h1>
 
 {% if error %}
 <div class="alert alert-error" role="alert">{{ error }}</div>
 {% endif %}
 
-<form action="/admin/products" method="post" enctype="multipart/form-data" class="checkout-form add-product-form">
+<form action="{{ studio_path }}/products" method="post" enctype="multipart/form-data" class="checkout-form add-product-form">
+  {% include "_csrf.html" %}
   <fieldset>
     <legend>Listing</legend>
     <label>

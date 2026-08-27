@@ -14,6 +14,7 @@ from email.message import EmailMessage
 from threading import Lock, Thread
 
 from src.models import Order, format_money
+from src.security import studio_url
 
 logger = logging.getLogger(__name__)
 
@@ -167,7 +168,7 @@ def order_email_body(order: Order) -> str:
     lines.extend(
         [
             "Open in studio:",
-            f"{shop_url()}/admin/orders/{order.id}",
+            f"{shop_url()}{studio_url(f'/orders/{order.id}')}",
             "",
         ]
     )
@@ -409,7 +410,7 @@ def notify_payment_failure(*, session_id: str, customer_email: str, reason: str,
         f"Customer: {customer_email or '(unknown)'}\n"
         f"Reason: {reason}\n\n"
         f"{refund_line}\n\n"
-        f"Studio: {shop_url()}/admin/orders\n"
+        f"Studio: {shop_url()}{studio_url('/orders')}\n"
     )
     try:
         _deliver_studio(
@@ -497,7 +498,7 @@ def _studio_cancellation_body(order: Order, *, refunded: bool) -> str:
         f"Total: {order.total_display}\n"
         f"{money}\n"
         "The customer was emailed.\n\n"
-        f"Studio: {shop_url()}/admin/orders/{order.id}\n"
+        f"Studio: {shop_url()}{studio_url(f'/orders/{order.id}')}\n"
     )
 
 
@@ -669,14 +670,14 @@ def _attack_copy(kind: str, ip: str) -> tuple[str, str]:
             f"The shop blocked repeated studio login tries from {ip}.\n\n"
             "The visitor is locked out for a few minutes. You do not need to do anything "
             "unless you were logging in from that network — if so, wait and try again.\n\n"
-            f"Studio login: {shop_url()}/admin/login\n"
+            f"Studio login: {shop_url()}{studio_url('/login')}\n"
         )
     else:
         subject = f"{shop_name()}: blocked checkout flood"
         body = (
             f"The shop blocked repeated checkout attempts from {ip}.\n\n"
             "No extra orders were created. You do not need to do anything.\n\n"
-            f"Studio orders: {shop_url()}/admin/orders\n"
+            f"Studio orders: {shop_url()}{studio_url('/orders')}\n"
         )
     return subject, body
 

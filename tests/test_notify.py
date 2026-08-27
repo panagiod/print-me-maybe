@@ -106,7 +106,7 @@ def test_build_order_email_includes_customer_and_totals() -> None:
     assert "€4.00" in body
     assert "€3.50" in body
     assert "€7.50" in body
-    assert "/admin/orders/12" in body
+    assert "/studio/orders/12" in body
     assert "No payment was collected" in body
 
 
@@ -351,7 +351,7 @@ def test_notify_sends_via_smtp(monkeypatch) -> None:
     assert "Floral Glasses Case" in sent[0].get_content()
     assert sent[1]["To"] == "ada@example.com"
     assert "/order/customer-order-token-12" in sent[1].get_content()
-    assert "/admin/" not in sent[1].get_content()
+    assert "/studio/" not in sent[1].get_content()
 
 
 def test_notify_failure_does_not_raise(monkeypatch) -> None:
@@ -531,8 +531,8 @@ def test_studio_orders_warns_when_from_is_resend_dev(monkeypatch) -> None:
     init_schema()
     seed_products()
     client = TestClient(app)
-    client.post("/admin/login", data={"password": "printmemaybe"})
-    page = client.get("/admin/orders")
+    client.post("/studio/login", data={"password": "printmemaybe"})
+    page = client.get("/studio/orders")
     assert page.status_code == 200
     assert "resend.com/domains" in page.text
     assert "RESEND_FROM" in page.text
