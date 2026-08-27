@@ -1182,6 +1182,13 @@ def test_admin_add_page_and_multiple_photos() -> None:
     assert 'data-gallery-prev' in shop.text
     assert 'data-gallery-next' in shop.text
     assert 'data-gallery-index="1"' in shop.text
+    home = client.get("/")
+    assert home.status_code == 200
+    assert "Gallery Dragon" in home.text
+    assert "/static/js/gallery.js" in home.text
+    assert home.text.count('aria-label="Next photo of Gallery Dragon"') == 1
+    assert product.gallery[0].thumb_url in home.text
+    assert product.gallery[1].thumb_url in home.text
     edit = client.get(f"/admin/products/{product.id}/edit")
     assert "Cover" in edit.text
     assert product.gallery[0].thumb_url in edit.text

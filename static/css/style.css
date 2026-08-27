@@ -247,12 +247,36 @@ img {
   .product-card:hover .product-image {
     transform: scale(1.04);
   }
+
+  .product-card:hover .gallery-viewport .product-image {
+    transform: none;
+  }
 }
 
 .product-image-link {
   aspect-ratio: 1;
   overflow: hidden;
   background: #f0ebe3;
+}
+
+.product-card-gallery {
+  background: #f0ebe3;
+}
+
+.gallery-slide-link {
+  flex: 0 0 100%;
+  width: 100%;
+  aspect-ratio: 1;
+  display: block;
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+  overflow: hidden;
+}
+
+.product-card-gallery .gallery-nav {
+  width: 2rem;
+  height: 2rem;
+  font-size: 1.35rem;
 }
 
 .product-image {

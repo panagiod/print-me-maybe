@@ -200,7 +200,7 @@ Resend TXT/MX records for email ([#2](https://github.com/panagiod/print-me-maybe
 
 ## Features
 
-- Catalog with category filter (3D Prints / Laser Engraving); product pages with several photos scroll left/right (swipe, arrows, or thumbs)
+- Catalog with category filter (3D Prints / Laser Engraving); several photos scroll left/right on the home cards and on the product page (swipe, arrows, or thumbs)
 - Session cart; quantity cannot exceed stock
 - Shipping chosen at checkout (see [Shipping](#shipping)): pick up free, Cyprus delivery €3.50, Greece delivery €10
 - Checkout: name, email, phone (required for delivery), street / city / postcode, optional order notes, pick-up or delivery (Cyprus or Greece), **card (Stripe)** or **cash at pick up**
@@ -451,7 +451,7 @@ Studio **Stock** is a photo grid. Search by name, filter by line (3D / laser) or
 
 **Add a product.** `/admin/products/new` — name, description, price, category, **product code** (optional), stock, and one or more photos (preview before save). After save you return to Stock with an “added” banner. Leave the code blank to get the next `3D-001` or `LC-001`.
 
-**Photos.** Edit shows the current gallery. The **cover** is the shop card and cart thumb; extra photos appear on `/product/{slug}` as a left/right scroller (swipe, arrow buttons, or thumbs). You can add files, **Make cover**, or **Remove** a photo. Uploads (JPG/PNG/WebP/GIF, 5 MB each) are stored uniquely under `DATA_DIR/product-images`. **Pillow** auto-rotates, strips EXIF, writes a display image (max 1600px) and a **thumb** (max 400px). Catalog cards, cart, and gallery thumbs use the thumb; the product page main image uses the display file.
+**Photos.** Edit shows the current gallery. The **cover** is the shop card and cart thumb; extra photos scroll left/right on the home cards and on `/product/{slug}` (swipe, arrow buttons, or thumbs on the product page). You can add files, **Make cover**, or **Remove** a photo. Uploads (JPG/PNG/WebP/GIF, 5 MB each) are stored uniquely under `DATA_DIR/product-images`. **Pillow** auto-rotates, strips EXIF, writes a display image (max 1600px) and a **thumb** (max 400px). Catalog cards, cart, and gallery thumbs use the thumb; the product page main image uses the display file.
 
 **Hide from shop.** **Hide** keeps the SKU and orders; it disappears from `/`, `/api/products`, and product URLs. **Show in shop** lists it again. Qty, Hide, and Show on Stock update that card **in place** (HTMX); without JavaScript they still POST and reload the page. Sold out (qty 0) is separate: the product page still exists but cannot be added to the cart.
 

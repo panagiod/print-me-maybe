@@ -12,7 +12,7 @@
 <article class="product-detail">
   <div class="product-detail-image">
     <div class="gallery" data-gallery>
-      <div class="gallery-viewport" id="gallery-viewport"{% if product.gallery_urls|length > 1 %} tabindex="0" aria-label="Product photos"{% endif %}>
+      <div class="gallery-viewport"{% if product.gallery_urls|length > 1 %} tabindex="0" aria-label="Product photos"{% endif %}>
         {% for url in product.gallery_urls %}
         <img src="{{ url }}" alt="{{ product.name }}{% if product.gallery_urls|length > 1 %} photo {{ loop.index }}{% endif %}" class="gallery-slide" data-gallery-slide>
         {% endfor %}

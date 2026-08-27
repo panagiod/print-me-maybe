@@ -18,12 +18,24 @@
 </nav>
 {% endif %}
 
+{% set ns = namespace(multi_photos=false) %}
 <section class="product-grid" aria-label="Products">
   {% for product in products %}
+  {% if product.gallery_urls|length > 1 %}{% set ns.multi_photos = true %}{% endif %}
   <article class="product-card">
-    <a href="/product/{{ product.slug }}" class="product-image-link">
-      <img src="{{ product.thumb_url }}" alt="{{ product.name }}" loading="lazy" class="product-image">
-    </a>
+    <div class="gallery product-card-gallery" data-gallery>
+      <div class="gallery-viewport"{% if product.gallery_urls|length > 1 %} tabindex="0" aria-label="{{ product.name }} photos"{% endif %}>
+        {% for url in product.gallery_urls %}
+        <a href="/product/{{ product.slug }}" class="gallery-slide-link" data-gallery-slide>
+          <img src="{{ url | thumb }}" alt="{{ product.name }}{% if product.gallery_urls|length > 1 %} photo {{ loop.index }}{% endif %}" loading="lazy" class="product-image">
+        </a>
+        {% endfor %}
+      </div>
+      {% if product.gallery_urls|length > 1 %}
+      <button type="button" class="gallery-nav gallery-nav-prev" data-gallery-prev aria-label="Previous photo of {{ product.name }}">‹</button>
+      <button type="button" class="gallery-nav gallery-nav-next" data-gallery-next aria-label="Next photo of {{ product.name }}">›</button>
+      {% endif %}
+    </div>
     <div class="product-body">
       <p class="product-category">{{ product.category }}</p>
       <h2 class="product-name">
@@ -41,4 +53,7 @@
   <p class="empty-state">No products in this category right now.</p>
   {% endfor %}
 </section>
+{% if ns.multi_photos %}
+<script src="/static/js/gallery.js" defer></script>
+{% endif %}
 {% endblock %}
