@@ -73,6 +73,7 @@ PRODUCT_CODE_PREFIXES = {
     "Lord of the Rings": "LOTR",
     "Household": "HH",
     "Pokemon": "PK",
+    "Toys": "TOY",
     "3D Prints": "3D",
     "Laser Engraving": "LC",
 }

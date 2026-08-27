@@ -57,6 +57,7 @@ def test_health_and_catalog() -> None:
     assert "Lord of the Rings" in home.text
     assert "Household" in home.text
     assert "Pokemon" in home.text
+    assert "Toys" in home.text
     assert 'aria-label="Genres"' in home.text
 
     api = client.get("/api/products")
@@ -95,6 +96,10 @@ def test_category_filter() -> None:
     pokemon = client.get("/?category=Pokemon")
     assert pokemon.status_code == 200
     assert "No products in this genre right now." in pokemon.text
+
+    toys = client.get("/?category=Toys")
+    assert toys.status_code == 200
+    assert "No products in this genre right now." in toys.text
 
 
 def test_shipping_calculation() -> None:
@@ -1270,6 +1275,17 @@ def test_product_codes_on_stock_orders_and_slips() -> None:
             stock=1,
             image_url="/static/images/products/placeholder.svg",
         )
+
+    toy = create_product(
+        name="Studio Spinner",
+        description="A fidget toy.",
+        price_cents=700,
+        category="Toys",
+        stock=6,
+        image_url="/static/images/products/placeholder.svg",
+    )
+    assert toy.category == "Toys"
+    assert toy.code == f"TOY-{toy.id:03d}"
 
     with pytest.raises(ValueError, match="already in use"):
         create_product(

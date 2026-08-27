@@ -24,7 +24,7 @@ from src.models import (
     studio_day_utc_bounds,
 )
 
-CATEGORIES = ("Harry Potter", "Lord of the Rings", "Household", "Pokemon")
+CATEGORIES = ("Harry Potter", "Lord of the Rings", "Household", "Pokemon", "Toys")
 PLACEHOLDER_IMAGE = "/static/images/products/placeholder.svg"
 
 
