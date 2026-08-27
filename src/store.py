@@ -14,18 +14,25 @@ from src.db import get_connection
 from src.models import (
     ARCHIVABLE_STATUSES,
     CartLine,
+    Genre,
     Order,
     OrderItem,
     Product,
     ProductImage,
+    normalize_genre_name,
+    normalize_genre_prefix,
     normalize_product_code,
     parse_studio_day,
     product_code_prefix,
     studio_day_utc_bounds,
 )
 
-CATEGORIES = ("Harry Potter", "Lord of the Rings", "Household", "Pokemon", "Toys")
 PLACEHOLDER_IMAGE = "/static/images/products/placeholder.svg"
+_GENRE_SELECT = """
+    SELECT g.id, g.name, g.code_prefix, g.sort_order,
+           (SELECT COUNT(*) FROM products p WHERE p.category = g.name) AS product_count
+    FROM product_genres g
+"""
 
 
 def slugify(name: str) -> str:
@@ -76,9 +83,132 @@ def list_products(category: str | None = None) -> list[Product]:
         return _products_from_rows(conn, rows)
 
 
+def list_genres() -> list[Genre]:
+    """Studio and shop genre chips, in sort order."""
+    with get_connection() as conn:
+        rows = conn.execute(_GENRE_SELECT + " ORDER BY g.sort_order, g.name").fetchall()
+        return [Genre.from_row(row) for row in rows]
+
+
 def list_categories() -> list[str]:
-    """Genre chips for the shop and studio. Always the full set, even if a genre is empty."""
-    return list(CATEGORIES)
+    """Genre names for shop chips and product forms."""
+    return [genre.name for genre in list_genres()]
+
+
+def get_genre(genre_id: int) -> Genre | None:
+    with get_connection() as conn:
+        row = conn.execute(_GENRE_SELECT + " WHERE g.id = ?", (genre_id,)).fetchone()
+        return Genre.from_row(row) if row else None
+
+
+def _canonical_genre_name(conn, category: str) -> str:
+    cleaned = (category or "").strip()
+    if not cleaned:
+        raise ValueError("Genre is required")
+    row = conn.execute(
+        "SELECT name FROM product_genres WHERE name = ? COLLATE NOCASE",
+        (cleaned,),
+    ).fetchone()
+    if not row:
+        raise ValueError("Choose a genre")
+    return row["name"]
+
+
+def _genre_prefix(conn, category: str) -> str:
+    row = conn.execute(
+        "SELECT code_prefix FROM product_genres WHERE name = ? COLLATE NOCASE",
+        ((category or "").strip(),),
+    ).fetchone()
+    if row and row["code_prefix"]:
+        return row["code_prefix"]
+    return product_code_prefix(category)
+
+
+def _assert_genre_unique(conn, *, name: str, prefix: str, exclude_id: int | None = None) -> None:
+    name_row = conn.execute(
+        "SELECT id FROM product_genres WHERE name = ? COLLATE NOCASE",
+        (name,),
+    ).fetchone()
+    if name_row and int(name_row["id"]) != exclude_id:
+        raise ValueError("That genre already exists")
+    prefix_row = conn.execute(
+        "SELECT id FROM product_genres WHERE code_prefix = ? COLLATE NOCASE",
+        (prefix,),
+    ).fetchone()
+    if prefix_row and int(prefix_row["id"]) != exclude_id:
+        raise ValueError(f"Prefix {prefix} is already used")
+
+
+def create_genre(*, name: str, code_prefix: str) -> Genre:
+    cleaned = normalize_genre_name(name)
+    prefix = normalize_genre_prefix(code_prefix)
+    if not cleaned:
+        raise ValueError("Genre name is required")
+    if len(prefix) < 2:
+        raise ValueError("Code prefix needs at least two letters")
+    with get_connection() as conn:
+        _assert_genre_unique(conn, name=cleaned, prefix=prefix)
+        sort_order = conn.execute(
+            "SELECT COALESCE(MAX(sort_order), 0) + 10 FROM product_genres"
+        ).fetchone()[0]
+        cursor = conn.execute(
+            "INSERT INTO product_genres (name, code_prefix, sort_order) VALUES (?, ?, ?)",
+            (cleaned, prefix, sort_order),
+        )
+        row = conn.execute(_GENRE_SELECT + " WHERE g.id = ?", (cursor.lastrowid,)).fetchone()
+        return Genre.from_row(row)
+
+
+def update_genre(genre_id: int, *, name: str, code_prefix: str) -> Genre:
+    existing = get_genre(genre_id)
+    if not existing:
+        raise ValueError("Genre not found")
+    cleaned = normalize_genre_name(name)
+    prefix = normalize_genre_prefix(code_prefix)
+    if not cleaned:
+        raise ValueError("Genre name is required")
+    if len(prefix) < 2:
+        raise ValueError("Code prefix needs at least two letters")
+    with get_connection() as conn:
+        _assert_genre_unique(conn, name=cleaned, prefix=prefix, exclude_id=genre_id)
+        conn.execute(
+            "UPDATE product_genres SET name = ?, code_prefix = ? WHERE id = ?",
+            (cleaned, prefix, genre_id),
+        )
+        if cleaned != existing.name:
+            conn.execute(
+                "UPDATE products SET category = ? WHERE category = ?",
+                (cleaned, existing.name),
+            )
+        row = conn.execute(_GENRE_SELECT + " WHERE g.id = ?", (genre_id,)).fetchone()
+        return Genre.from_row(row)
+
+
+def delete_genre(genre_id: int, *, move_to_id: int | None = None) -> None:
+    existing = get_genre(genre_id)
+    if not existing:
+        raise ValueError("Genre not found")
+    with get_connection() as conn:
+        count = conn.execute(
+            "SELECT COUNT(*) FROM products WHERE category = ?",
+            (existing.name,),
+        ).fetchone()[0]
+        if count:
+            if not move_to_id or int(move_to_id) == genre_id:
+                raise ValueError(
+                    f"Move the {count} product{'s' if count != 1 else ''} to another genre first"
+                )
+            dest = conn.execute(
+                "SELECT name FROM product_genres WHERE id = ?",
+                (move_to_id,),
+            ).fetchone()
+            if not dest:
+                raise ValueError("Choose a genre to move products into")
+            conn.execute(
+                "UPDATE products SET category = ? WHERE category = ?",
+                (dest["name"], existing.name),
+            )
+        conn.execute("DELETE FROM product_genres WHERE id = ?", (genre_id,))
 
 
 def get_product(product_id: int) -> Product | None:
@@ -261,7 +391,7 @@ def allocate_product_code(
         if not _code_taken(conn, wanted, exclude_id):
             return wanted
         raise ValueError(f"Product code {wanted} is already in use")
-    prefix = product_code_prefix(category)
+    prefix = _genre_prefix(conn, category)
     base = f"{prefix}-{product_id:03d}"
     if not _code_taken(conn, base, exclude_id):
         return base
@@ -294,8 +424,6 @@ def create_product(
     cleaned_category = category.strip()
     if not cleaned_category:
         raise ValueError("Genre is required")
-    if cleaned_category not in CATEGORIES:
-        raise ValueError("Choose a genre")
     if price_cents <= 0:
         raise ValueError("Price must be greater than zero")
 
@@ -309,6 +437,7 @@ def create_product(
     qty = max(0, stock)
 
     with get_connection() as conn:
+        cleaned_category = _canonical_genre_name(conn, cleaned_category)
         cursor = conn.execute(
             """
             INSERT INTO products (slug, name, description, price_cents, image_url, category, stock, hidden, code)
@@ -359,8 +488,6 @@ def update_product(
     cleaned_category = category.strip()
     if not cleaned_category:
         raise ValueError("Genre is required")
-    if cleaned_category not in CATEGORIES:
-        raise ValueError("Choose a genre")
     if price_cents <= 0:
         raise ValueError("Price must be greater than zero")
     photo = existing.image_url
@@ -368,6 +495,7 @@ def update_product(
     requested_code = existing.code if code is None else code
 
     with get_connection() as conn:
+        cleaned_category = _canonical_genre_name(conn, cleaned_category)
         allocated = allocate_product_code(
             conn,
             category=cleaned_category,

@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+
+{% block title %}Genres — {{ shop_name }}{% endblock %}
+
+{% block content %}
+<p class="breadcrumb"><a href="/admin/stock">Stock</a> / Genres</p>
+<h1 class="page-title">Genres</h1>
+<p class="hero-subtitle">These names are the chips on the shop and the genre list when you add or edit a product. Renaming a genre updates every listing that uses it. Removing one that still has products asks you to move those listings first.</p>
+
+{% if error %}
+<div class="alert alert-error" role="alert">{{ error }}</div>
+{% endif %}
+{% if added %}
+<div class="alert alert-ok" role="status">Genre added.</div>
+{% endif %}
+
+<form action="/admin/genres" method="post" class="checkout-form add-genre-form">
+  <fieldset>
+    <legend>Add a genre</legend>
+    <label>
+      Name
+      <input type="text" name="name" required maxlength="40" value="{{ form_name or '' }}" placeholder="Star Wars">
+    </label>
+    <label>
+      Code prefix
+      <input type="text" name="code_prefix" required maxlength="8" value="{{ form_prefix or '' }}" placeholder="SW" autocomplete="off">
+    </label>
+    <p class="field-hint">Prefix is used for new product codes (for example SW-012). Existing codes stay as they are.</p>
+    <button type="submit" class="btn btn-primary">Add genre</button>
+  </fieldset>
+</form>
+
+{% if genres %}
+<ul class="genre-list">
+  {% for genre in genres %}
+  <li class="genre-card">
+    <form action="/admin/genres/{{ genre.id }}/edit" method="post" class="genre-edit">
+      <label>
+        Name
+        <input type="text" name="name" required maxlength="40" value="{{ genre.name }}">
+      </label>
+      <label>
+        Prefix
+        <input type="text" name="code_prefix" required maxlength="8" value="{{ genre.code_prefix }}" autocomplete="off">
+      </label>
+      <p class="genre-count">{{ genre.product_count }} product{% if genre.product_count != 1 %}s{% endif %}</p>
+      <button type="submit" class="btn btn-primary btn-sm">Save</button>
+    </form>
+    <form action="/admin/genres/{{ genre.id }}/delete" method="post" class="genre-remove" data-confirm="{% if genre.product_count %}Remove {{ genre.name }} and move its products?{% else %}Remove {{ genre.name }}?{% endif %}">
+      {% if genre.product_count and genres|length > 1 %}
+      <label>
+        Move products to
+        <select name="move_to" required>
+          <option value="">Choose…</option>
+          {% for other in genres %}
+          {% if other.id != genre.id %}
+          <option value="{{ other.id }}">{{ other.name }}</option>
+          {% endif %}
+          {% endfor %}
+        </select>
+      </label>
+      {% endif %}
+      <button type="submit" class="btn btn-ghost btn-sm"{% if genre.product_count and genres|length < 2 %} disabled{% endif %}>Remove</button>
+    </form>
+  </li>
+  {% endfor %}
+</ul>
+{% else %}
+<p class="empty-state">No genres yet. Add one so you can assign products.</p>
+{% endif %}
+{% endblock %}

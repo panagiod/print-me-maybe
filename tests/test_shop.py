@@ -16,7 +16,7 @@ from src.models import (
     shipping_method_label,
 )
 from src.seed import seed_products
-from src.store import get_order, list_all_products
+from src.store import get_order, list_all_products, list_genres
 from src.uploads import image_thumb_url
 
 
@@ -193,6 +193,88 @@ def test_category_filter() -> None:
     toys = client.get("/?category=Toys")
     assert toys.status_code == 200
     assert "No products in this genre right now." in toys.text
+
+
+def test_admin_can_add_rename_and_remove_genres() -> None:
+    from src.store import create_product
+
+    init_schema()
+    seed_products()
+    client = TestClient(app)
+
+    guest = client.get("/admin/genres", follow_redirects=False)
+    assert guest.status_code == 303
+
+    client.post("/admin/login", data={"password": "printmemaybe"})
+    page = client.get("/admin/genres")
+    assert page.status_code == 200
+    assert "Harry Potter" in page.text
+    assert "Toys" in page.text
+    assert 'href="/admin/genres"' in page.text
+
+    created = client.post(
+        "/admin/genres",
+        data={"name": "Star Wars", "code_prefix": "sw"},
+        follow_redirects=False,
+    )
+    assert created.status_code == 303
+    home = client.get("/")
+    assert "Star Wars" in home.text
+    new_form = client.get("/admin/products/new")
+    assert 'value="Star Wars"' in new_form.text
+
+    wars = next(genre for genre in list_genres() if genre.name == "Star Wars")
+    assert wars.code_prefix == "SW"
+    saber = create_product(
+        name="Lightsaber Hook",
+        description="Wall hook.",
+        price_cents=900,
+        category="star wars",
+        stock=2,
+        image_url="/static/images/products/placeholder.svg",
+    )
+    assert saber.category == "Star Wars"
+    assert saber.code.startswith("SW-")
+
+    renamed = client.post(
+        f"/admin/genres/{wars.id}/edit",
+        data={"name": "Star Wars Saga", "code_prefix": "SW"},
+        follow_redirects=False,
+    )
+    assert renamed.status_code == 303
+    saber = next(item for item in list_all_products() if item.id == saber.id)
+    assert saber.category == "Star Wars Saga"
+    home = client.get("/")
+    assert "Star Wars Saga" in home.text
+
+    blocked = client.post(f"/admin/genres/{wars.id}/delete", follow_redirects=False)
+    assert blocked.status_code == 400
+    assert "Move" in blocked.text
+
+    household = next(genre for genre in list_genres() if genre.name == "Household")
+    moved = client.post(
+        f"/admin/genres/{wars.id}/delete",
+        data={"move_to": str(household.id)},
+        follow_redirects=False,
+    )
+    assert moved.status_code == 303
+    saber = next(item for item in list_all_products() if item.id == saber.id)
+    assert saber.category == "Household"
+    assert "Star Wars Saga" not in client.get("/").text
+
+    client.post("/admin/genres", data={"name": "Temp", "code_prefix": "TMP"})
+    temp = next(genre for genre in list_genres() if genre.name == "Temp")
+    gone = client.post(f"/admin/genres/{temp.id}/delete", follow_redirects=False)
+    assert gone.status_code == 303
+    assert all(genre.name != "Temp" for genre in list_genres())
+
+    duplicate = client.post(
+        "/admin/genres",
+        data={"name": "Household", "code_prefix": "HH2"},
+        follow_redirects=False,
+    )
+    assert duplicate.status_code == 400
+    assert "already exists" in duplicate.text
 
 
 def test_shipping_calculation() -> None:

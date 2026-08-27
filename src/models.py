@@ -68,19 +68,32 @@ def shipping_method_label(shipping_method: str, delivery_country: str | None = N
     return ""
 
 
+DEFAULT_GENRES = (
+    ("Harry Potter", "HP"),
+    ("Lord of the Rings", "LOTR"),
+    ("Household", "HH"),
+    ("Pokemon", "PK"),
+    ("Toys", "TOY"),
+)
 PRODUCT_CODE_PREFIXES = {
-    "Harry Potter": "HP",
-    "Lord of the Rings": "LOTR",
-    "Household": "HH",
-    "Pokemon": "PK",
-    "Toys": "TOY",
-    "3D Prints": "3D",
-    "Laser Engraving": "LC",
+    name: prefix for name, prefix in DEFAULT_GENRES
 }
+PRODUCT_CODE_PREFIXES.update({"3D Prints": "3D", "Laser Engraving": "LC"})
 
 
 def product_code_prefix(category: str) -> str:
     return PRODUCT_CODE_PREFIXES.get(category, "PMM")
+
+
+def normalize_genre_name(raw: str | None) -> str:
+    """Trim and collapse spaces; max 40 characters."""
+    text = " ".join((raw or "").split())
+    return text[:40].rstrip()
+
+
+def normalize_genre_prefix(raw: str | None) -> str:
+    """Uppercase A–Z and digits, 2–8 characters after validation."""
+    return re.sub(r"[^A-Z0-9]", "", (raw or "").strip().upper())[:8]
 
 
 def normalize_product_code(raw: str | None) -> str:
@@ -189,6 +202,31 @@ def format_shipping_address(
 def order_total_cents(subtotal_cents: int, shipping_method: str, delivery_country: str | None = None) -> int:
     """Subtotal plus checkout shipping for order persistence."""
     return subtotal_cents + shipping_cents(shipping_method, delivery_country)
+
+
+@dataclass(frozen=True)
+class Genre:
+    """A shop genre chip, stored in product_genres."""
+
+    id: int
+    name: str
+    code_prefix: str
+    sort_order: int = 0
+    product_count: int = 0
+
+    @classmethod
+    def from_row(cls, row: Any) -> "Genre":
+        keys = row.keys()
+        count = 0
+        if "product_count" in keys and row["product_count"] is not None:
+            count = int(row["product_count"])
+        return cls(
+            id=int(row["id"]),
+            name=row["name"],
+            code_prefix=row["code_prefix"],
+            sort_order=int(row["sort_order"] or 0),
+            product_count=count,
+        )
 
 
 @dataclass(frozen=True)
