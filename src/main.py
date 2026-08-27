@@ -26,6 +26,7 @@ from src.models import (
     phone_has_enough_digits,
     shipping_cents,
 )
+from src.uploads import backfill_product_thumbs, image_thumb_url
 from src.ratelimit import RateLimitMiddleware
 from src.security import SecurityHeadersMiddleware, require_production_secrets, session_https_only, session_secret
 from src.seed import seed_products
@@ -57,6 +58,7 @@ async def lifespan(_app: FastAPI):
     require_production_secrets()
     init_schema()
     seed_products()
+    backfill_product_thumbs()
     yield
 
 
@@ -68,6 +70,7 @@ app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 templates.env.globals["format_money"] = format_money
+templates.env.filters["thumb"] = image_thumb_url
 app.include_router(admin_router)
 
 

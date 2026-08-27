@@ -16,7 +16,7 @@
     <div class="gallery-thumbs" role="list">
       {% for url in product.gallery_urls %}
       <button type="button" class="gallery-thumb {% if loop.first %}is-active{% endif %}" data-gallery-src="{{ url }}" aria-label="Photo {{ loop.index }}">
-        <img src="{{ url }}" alt="">
+        <img src="{{ url | thumb }}" alt="">
       </button>
       {% endfor %}
     </div>

@@ -8,6 +8,8 @@ from datetime import datetime, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from src.uploads import image_thumb_url
+
 STUDIO_TZ = ZoneInfo(os.environ.get("SHOP_TIMEZONE", "Europe/Nicosia"))
 
 
@@ -101,6 +103,10 @@ class ProductImage:
     url: str
     sort_order: int = 0
 
+    @property
+    def thumb_url(self) -> str:
+        return image_thumb_url(self.url)
+
 
 @dataclass(frozen=True)
 class Product:
@@ -144,6 +150,10 @@ class Product:
     def gallery_urls(self) -> list[str]:
         urls = [photo.url for photo in self.gallery]
         return urls if urls else [self.image_url]
+
+    @property
+    def thumb_url(self) -> str:
+        return image_thumb_url(self.image_url)
 
     @property
     def price_display(self) -> str:

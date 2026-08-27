@@ -17,7 +17,7 @@
   <ul class="admin-photo-grid">
     {% for photo in product.gallery %}
     <li class="admin-photo-item {% if loop.first %}is-cover{% endif %}">
-      <img src="{{ photo.url }}" alt="">
+      <img src="{{ photo.thumb_url }}" alt="">
       {% if loop.first %}
       <span class="status-pill status-paid">Cover</span>
       {% else %}

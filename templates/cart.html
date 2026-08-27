@@ -21,7 +21,7 @@
     {% for line in lines %}
     <tr>
       <td class="cart-product" data-label="Product">
-        <img src="{{ line.product.image_url }}" alt="" class="cart-thumb">
+        <img src="{{ line.product.thumb_url }}" alt="" class="cart-thumb">
         <a href="/product/{{ line.product.slug }}">{{ line.product.name }}</a>
       </td>
       <td data-label="Price">{{ line.product.price_display }}</td>

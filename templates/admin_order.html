@@ -19,6 +19,7 @@
   <button type="button" class="btn btn-ghost" data-copy="{{ customer_order_url }}">Copy customer link</button>
   {% endif %}
   <a href="/admin/orders/{{ order.id }}/print" class="btn btn-ghost">Print packing slip</a>
+  <a href="/admin/orders/{{ order.id }}/print.pdf" class="btn btn-ghost">Download PDF</a>
   <form action="/admin/orders/{{ order.id }}/resend" method="post">
     <button type="submit" class="btn btn-ghost">Resend confirmation</button>
   </form>

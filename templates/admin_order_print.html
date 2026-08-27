@@ -7,6 +7,7 @@
   <p class="no-print breadcrumb"><a href="/admin/orders/{{ order.id }}">Back to order</a></p>
   <p class="no-print">
     <button type="button" class="btn btn-primary" data-print>Print</button>
+    <a href="/admin/orders/{{ order.id }}/print.pdf" class="btn btn-ghost">Download PDF</a>
   </p>
   <h1 class="page-title">{{ shop_name }}</h1>
   <p class="order-meta">Packing slip · Order #{{ order.id }} · {{ order.created_at_display }}</p>

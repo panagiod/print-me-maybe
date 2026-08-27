@@ -10,7 +10,9 @@ REPO_URL="${REPO_URL:-https://github.com/panagiod/print-me-maybe.git}"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get install -y python3 python3-venv python3-pip git sqlite3 \
-  debian-keyring debian-archive-keyring apt-transport-https curl gnupg
+  debian-keyring debian-archive-keyring apt-transport-https curl gnupg \
+  libpango-1.0-0 libcairo2 libgdk-pixbuf-2.0-0 libffi-dev shared-mime-info \
+  fonts-dejavu-core
 
 if ! command -v caddy >/dev/null 2>&1; then
   curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' \

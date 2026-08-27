@@ -434,7 +434,11 @@ def test_admin_add_product_shows_in_shop() -> None:
 
     photo = client.get(product.image_url)
     assert photo.status_code == 200
-    assert photo.content[:8] == b"\x89PNG\r\n\x1a\n"
+    assert photo.content[:2] == b"\xff\xd8"
+    thumb = client.get(product.thumb_url)
+    assert thumb.status_code == 200
+    home = client.get("/")
+    assert product.thumb_url in home.text
 
     seed_products()
     still_there = next(p for p in list_all_products() if p.slug == "studio-test-vase")
@@ -844,6 +848,7 @@ def test_packing_slip_and_nicosia_time() -> None:
     assert slip.status_code == 200
     assert "Packing slip" in slip.text
     assert "Print Me" in slip.text
+    assert "Download PDF" in slip.text
     from src.store import set_product_stock
 
     set_product_stock(glasses["id"], 0)
@@ -863,6 +868,7 @@ def test_admin_catalog_search_and_hide() -> None:
     assert "Floral Glasses Case" in stock.text
     assert "admin-catalog" in stock.text
     assert "Add product" in stock.text
+    assert "/static/js/htmx.min.js" in stock.text
     search = client.get("/admin/stock?q=Glasses")
     assert "Floral Glasses Case" in search.text
     assert "Minas Tirith" not in search.text
@@ -920,7 +926,7 @@ def test_admin_add_page_and_multiple_photos() -> None:
     assert "gallery-thumbs" in shop.text
     edit = client.get(f"/admin/products/{product.id}/edit")
     assert "Cover" in edit.text
-    assert product.gallery[0].url in edit.text
+    assert product.gallery[0].thumb_url in edit.text
     cover = client.post(
         f"/admin/products/{product.id}/images/{product.gallery[1].id}/cover",
         follow_redirects=False,

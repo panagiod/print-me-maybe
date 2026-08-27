@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Packing slip #{{ order.id }} — {{ shop_name }}</title>
+  <style>
+    @page { size: A4; margin: 16mm; }
+    body {
+      font-family: "DejaVu Sans", sans-serif;
+      font-size: 12pt;
+      color: #111;
+      margin: 0;
+    }
+    h1 { font-size: 20pt; margin: 0 0 8pt; }
+    h2 { font-size: 12pt; margin: 16pt 0 6pt; }
+    p { margin: 0 0 4pt; }
+    .meta { color: #444; margin-bottom: 12pt; }
+    .pill {
+      display: inline-block;
+      border: 1px solid #999;
+      padding: 2pt 8pt;
+      margin-right: 6pt;
+      font-size: 10pt;
+    }
+    ul { list-style: none; padding: 0; margin: 0 0 12pt; }
+    li {
+      display: flex;
+      justify-content: space-between;
+      border-bottom: 1px solid #ddd;
+      padding: 6pt 0;
+    }
+    .totals { width: 100%; }
+    .totals div { display: flex; justify-content: space-between; padding: 4pt 0; }
+    .total { font-weight: 700; border-top: 1px solid #111; margin-top: 6pt; }
+  </style>
+</head>
+<body>
+  <h1>{{ shop_name }}</h1>
+  <p class="meta">Packing slip · Order #{{ order.id }} · {{ order.created_at_display }}</p>
+  <p>
+    <span class="pill">{{ order.status_label }}</span>
+    <span class="pill">{{ order.payment_label }}{% if order.payment_method == "cash" %} (cash/bank){% endif %}</span>
+  </p>
+
+  <h2>Ship to</h2>
+  <p>{{ order.customer_name }}</p>
+  <p>{{ order.customer_email }}</p>
+  {% if order.customer_phone %}
+  <p>{{ order.customer_phone }}</p>
+  {% endif %}
+  {% if order.shipping_label %}
+  <p>{{ order.shipping_label }}</p>
+  {% endif %}
+  <p>{{ order.shipping_address }}</p>
+  {% if order.tracking_number %}
+  <p>Tracking: {{ order.tracking_number }}</p>
+  {% endif %}
+  {% if order.customer_notes %}
+  <h2>Customer notes</h2>
+  <p>{{ order.customer_notes }}</p>
+  {% endif %}
+
+  <h2>Items</h2>
+  <ul>
+    {% for item in order.items %}
+    <li>
+      <span>{{ item.product_name }} × {{ item.quantity }}</span>
+      <span>{{ item.line_total_display }}</span>
+    </li>
+    {% endfor %}
+  </ul>
+  <div class="totals">
+    <div><span>Subtotal</span><span>{{ format_money(order.subtotal_cents) }}</span></div>
+    <div><span>Shipping</span><span>{{ format_money(order.shipping_cents) if order.shipping_cents else "Free" }}</span></div>
+    <div class="total"><span>Total</span><span>{{ order.total_display }}</span></div>
+  </div>
+</body>
+</html>

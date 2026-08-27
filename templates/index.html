@@ -22,7 +22,7 @@
   {% for product in products %}
   <article class="product-card">
     <a href="/product/{{ product.slug }}" class="product-image-link">
-      <img src="{{ product.image_url }}" alt="{{ product.name }}" loading="lazy" class="product-image">
+      <img src="{{ product.thumb_url }}" alt="{{ product.name }}" loading="lazy" class="product-image">
     </a>
     <div class="product-body">
       <p class="product-category">{{ product.category }}</p>
