@@ -64,7 +64,7 @@ The [Go live](#go-live-cheapest-stack) sections below are a rebuild record, not 
 | Take **card payment** via Stripe Checkout when `STRIPE_SECRET_KEY` is set | Charge a monthly Stripe or Shopify fee |
 | Email studio and customer via Resend after you verify **your** domain | Send from `onboarding@resend.dev` or `outlook.com` |
 
-Custom names/files still go over **Instagram DM**.
+Custom names/files can be typed in **order notes** at checkout, or still go over **Instagram DM**.
 
 ## Go live (cheapest stack)
 
@@ -203,10 +203,10 @@ Resend TXT/MX records for email ([#2](https://github.com/panagiod/print-me-maybe
 - Catalog with category filter (3D Prints / Laser Engraving)
 - Session cart; quantity cannot exceed stock
 - Shipping chosen at checkout (see [Shipping](#shipping)): pick up free, Cyprus delivery €3.50, outside Cyprus €10
-- Checkout: name, email, pick-up or delivery, then **Stripe Checkout** when `STRIPE_SECRET_KEY` is set
-- Customer order page at `/order/{unguessable-token}` — status, payment, tracking number
-- Studio at `/admin` (not linked in public nav): orders, tracking number, notes, cancel (Stripe refund + restock + customer email), add/edit/remove product + photo
-- Emails via [Resend](https://resend.com): new order (studio + customer), shipped (customer, with tracking), cancelled (studio + customer), attack alerts
+- Checkout: name, email, phone (required for delivery), optional order notes, pick-up or delivery, then **Stripe Checkout** when `STRIPE_SECRET_KEY` is set
+- Customer order page at `/order/{unguessable-token}` — status, payment, tracking number, notes (times in Europe/Nicosia)
+- Studio at `/admin` (not linked in public nav): orders (search, shipping filters), tracking, customer/studio notes, copy customer link, resend mail, cash/bank paid, packing slip, cancel (Stripe refund + restock + customer email), add/edit/remove product + photo
+- Emails via [Resend](https://resend.com): new order (studio + customer), ready to collect/pack, shipped (customer; delivery waits for tracking), cancelled (studio + customer), attack alerts
 - JSON catalog at `GET /api/products`
 - Liveness at `GET /health` (`mail`, `payments`, `persistent`)
 
@@ -223,7 +223,7 @@ Resend TXT/MX records for email ([#2](https://github.com/panagiod/print-me-maybe
 ```
 src/                 FastAPI app
   main.py            Storefront routes (home, product, cart, checkout, health)
-  admin.py           Studio login, orders, tracking, stock, add/edit/remove product, test email
+  admin.py           Studio login, orders, tracking, stock, add/edit/remove product, packing slip, test email
   store.py           Products, cart lines, place_order, pending Stripe checkouts
   db.py              SQLite schema and DATA_DIR
   models.py          Product/Order types, EUR formatting, shipping rules
@@ -265,7 +265,7 @@ python3 -m pytest tests/ -v
 
 GitHub Actions (`.github/workflows/ci.yml`) runs on every pull request and on push to `main`: install deps, pytest, then boot Uvicorn and `curl` `/health` and `/`.
 
-Shop tests cover pick-up (free), Cyprus delivery (€3.50), international delivery (€10), studio product delete (including the block when a product has already been ordered), admin cancel (restock; Stripe refund when paid), and shipping a tracking number to the customer order page.
+Shop tests cover pick-up (free), Cyprus delivery (€3.50, phone required), international delivery (€10), checkout notes, studio product delete (including the block when a product has already been ordered), admin cancel (restock; Stripe refund when paid by card, not for cash), cash/bank mark-paid, ready and shipped emails, and shipping a tracking number to the customer order page.
 
 ## CI/CD deployment
 
@@ -330,6 +330,7 @@ Set these in `/etc/eshop.env` on the server (`deploy/env.example`). Never commit
 | `SESSION_HTTPS_ONLY` | on when `ENV=production` | Secure cookie flag |
 | `SHOP_NAME` | `Print Me Maybe` | Branding |
 | `SHOP_URL` | your `https://` domain | Links in emails |
+| `SHOP_TIMEZONE` | `Europe/Nicosia` | Display timezone for order timestamps |
 | `DATA_DIR` | `/tmp/eshop-data` locally; `/var/lib/eshop` in production | SQLite + uploaded photos |
 | `NOTIFY_EMAIL` | `dimitrioupanagiotis@outlook.com` | Inbox for order and attack alerts |
 | `RESEND_API_KEY` | empty (mail skipped) | Resend API key (`re_…`) |
@@ -353,29 +354,31 @@ Two dashboards that are easy to mix up:
 
 ## Shop behaviour
 
-**Catalog.** Seed SKUs live in `src/seed.py` (names, euro prices, photos from public Instagram where a price was named). On boot, seed rows are upserted **by slug**. Stock changes and products added in studio are kept; seed does not reset quantity.
+**Catalog.** Seed SKUs live in `src/seed.py` (names, euro prices, photos from public Instagram where a price was named). On boot, missing slugs are inserted. **Existing rows are left as-is** — admin price, name, photo, category, and stock survive deploy/restart. Products added in studio are never overwritten.
 
-**Cart.** Stored in the signed session cookie (7 days). Add/update quantity is capped at remaining stock. Zero stock hides a product from the shop. The cart shows the product subtotal only; shipping is not applied until checkout.
+**Cart.** Stored in the signed session cookie (7 days). Add/update quantity is capped at remaining stock. Zero stock hides a product from the shop and the product page shows **Sold out** (no Add to cart). The cart shows the product subtotal only; shipping is not applied until checkout.
 
-**Checkout.** GET `/checkout` collects name, email, and a delivery choice (pick up vs ship). Delivery requires a destination (Cyprus or outside Cyprus) and an address. POST `/checkout` then:
+**Checkout.** GET `/checkout` collects name, email, optional phone, optional order notes (colour, name, files), and a delivery choice (pick up vs ship). Delivery requires a destination (Cyprus or outside Cyprus), an address, and a phone number. POST `/checkout` then:
 
 1. Recalculates shipping from the chosen method and destination (see [Shipping](#shipping)).
-2. If Stripe is configured, the browser goes to Stripe Checkout. Shipping is a separate Stripe line item when it is more than €0. The cart, shipping method, destination, unit prices, and totals are stored in SQLite (`pending_checkouts`) keyed by the Stripe session id (Stripe metadata is a backup). The order is created when Stripe sends `checkout.session.completed` to `POST /webhooks/stripe`, or when the customer lands on `GET /pay/success`. Both paths are idempotent.
+2. If Stripe is configured, the browser goes to Stripe Checkout. Shipping is a separate Stripe line item when it is more than €0. The cart, shipping method, destination, unit prices, totals, notes, and phone are stored in SQLite (`pending_checkouts`) keyed by the Stripe session id (Stripe metadata is a backup). The order is created when Stripe sends `checkout.session.completed` to `POST /webhooks/stripe`, or when the customer lands on `GET /pay/success`. Both paths are idempotent and **empty the session cart**.
 3. If creating the order fails after payment (for example stock ran out), the shop refunds the PaymentIntent and emails the studio.
 4. Without Stripe, checkout is the no-card demo and still stores the same total (subtotal + shipping).
 
-Pick-up orders store method `pickup` and address `Pick up at studio`. Delivery orders store `shipping_method`, `delivery_country` (`cyprus` or `other`), and the typed address.
+Pick-up orders store method `pickup` and address `Pick up at studio`. Delivery orders store `shipping_method`, `delivery_country` (`cyprus` or `other`), the typed address, and `customer_phone`. Customer notes are stored separately from studio notes.
 
-**Customer order URL.** `/order/{lookup_token}` — random token, not the numeric id. Guessing `/order/12` returns 404. The thank-you page and the confirmation email both include this link.
+**Customer order URL.** `/order/{lookup_token}` — random token, not the numeric id. Guessing `/order/12` returns 404. The thank-you page and the confirmation email both include this link. Times on that page (and in studio) are shown in **Europe/Nicosia**.
 
 The page shows:
 
 - Status: New, In progress, Ready to ship, Shipped, or Cancelled
 - Payment: Unpaid, Paid, or Refunded
 - Shipping method and address
+- Phone (when given)
+- Customer notes (when given)
 - Tracking number, once you save one in studio (see [How customers follow an order](#how-customers-follow-an-order))
 
-Confirmation, order pages, and emails also show the shipping method label plus Free / €3.50 / €10.
+Confirmation, order pages, and emails also show the shipping method label plus Free / €3.50 / €10. Line item names are snapshotted on the order, so renaming a product later does not rewrite history.
 
 ## Shipping
 
@@ -390,7 +393,7 @@ Rates are decided at checkout, not from cart size. There is no free-shipping thr
 - Cart copy: “Pick up is free. Cyprus delivery is €3.50. Outside Cyprus is €10.”
 - Home hero: “Free pick up; €3.50 delivery in Cyprus; €10 shipping outside Cyprus.”
 - Checkout totals update in the browser when the customer switches pick-up / delivery or Cyprus / outside Cyprus. The server recomputes the same numbers on POST (and again from Stripe metadata after payment).
-- The `orders` table stores `shipping_method`, `delivery_country`, `shipping_address`, `tracking_number`, and a combined `total_cents` (subtotal + shipping). Shipping itself is also derived as `total_cents − item subtotal`.
+- The `orders` table stores `shipping_method`, `delivery_country`, `shipping_address`, `tracking_number`, `customer_notes`, `customer_phone`, `payment_method`, and a combined `total_cents` (subtotal + shipping). Shipping itself is also derived as `total_cents − item subtotal`.
 
 ## Studio admin
 
@@ -398,28 +401,38 @@ Public nav does not advertise `/admin`. Login: `/admin/login` on your domain (pr
 
 | Page | What it does |
 |------|----------------|
-| `/admin/orders` | Filter by status; Paid / Unpaid / Refunded; **Send test email** |
-| `/admin/orders/{id}` | Status, **tracking number**, notes, cancel (Stripe refund if paid, restock, email customer) / reopen (deduct stock; does not charge again) |
-| `/admin/stock` | Add product; **Edit** name/price/description/category/photo/qty; set stock; **Remove** unused products |
+| `/admin/orders` | Filter by status and shipping (pickup / Cyprus / outside Cyprus); search by number, name, email, or tracking; Paid / Unpaid / Refunded; **Send test email** |
+| `/admin/orders/{id}` | Status, **tracking number**, customer notes vs studio notes, phone (`tel:`), copy customer link, resend confirmation (and shipped email), **Mark as paid (cash/bank)**, print packing slip, Stripe session id, cancel (Stripe refund if card-paid, restock, email customer) / reopen (blocked if refunded) |
+| `/admin/orders/{id}/print` | Packing slip (print hides the admin chrome) |
+| `/admin/stock` | Add product; **Edit** name/price/description/category/photo/qty; set stock (low/zero rows highlighted, sold-out last); **Remove** unused products (asks confirm) |
 
 ### Daily order flow
 
-1. Open **Orders**. New paid checkouts show **Paid**.
-2. Open the order. Set status **In progress** then **Ready to ship** as you work. Save notes for custom names, files, Instagram.
-3. When it leaves: set status **Shipped**, paste the courier number in **Tracking number**, Save. The customer sees it on their order link and gets an email.
-4. You can add the tracking number later; saving a new number on an already-shipped order emails the customer again. Leave it blank for pick-up.
+1. Open **Orders**. New paid checkouts show **Paid**. Use search or Pickup / Cyprus / Outside Cyprus chips on packing day.
+2. Open the order. Set status **In progress** then **Ready to ship** as you work. Ready emails the customer once (pickup: collect at studio; delivery: packed for courier). Studio notes are yours; customer notes came from checkout.
+3. When it leaves: set status **Shipped**. For **delivery**, paste the courier number in **Tracking number** and Save — the customer is emailed only when a tracking number exists. Pickup customers get a collect-at-studio email (no tracking nag).
+4. You can add the tracking number later; saving a new number on an already-shipped delivery emails the customer again.
+5. If they lost the confirmation mail: **Copy customer link** or **Resend confirmation**.
+
+After Save, the order page shows whether the customer email was sent, skipped (no Resend key), failed, or still needs a tracking number.
 
 Order statuses: New → In progress → Ready to ship → Shipped, plus Cancelled.
 
 ### Cancel
 
-**Cancel a paid order** from that order page. The shop refunds the Stripe Checkout payment first; if Stripe rejects the refund, the order stays open and stock is not put back. After a successful refund the payment pill shows **Refunded**, items return to stock, and the customer (and studio inbox) get a cancellation email. Unpaid demo orders skip Stripe and still email the customer. Reopening a cancelled order deducts stock again and does **not** charge the card.
+**Cancel a paid order** from that order page. The browser asks you to confirm first (and shows the refund amount for card orders). The shop refunds the Stripe Checkout payment first; if Stripe rejects the refund, the order stays open and stock is not put back. After a successful refund the payment pill shows **Refunded**, items return to stock, and the customer (and studio inbox) get a cancellation email. **Refunded orders cannot be reopened** — if they pay again, place a new order.
+
+Unpaid demo orders skip Stripe and still email the customer. Orders marked **Paid (cash/bank)** restock and email on cancel and **do not** call Stripe. Reopening a cancelled unpaid order deducts stock again and does **not** charge a card.
 
 Stripe keeps the original card processing fee on a refund (see [Payments and refunds](#payments-and-refunds)).
 
+### Cash / bank
+
+Pickup customers may pay at the studio. On an **Unpaid** order, **Mark as paid (cash/bank)** sets Paid without calling Stripe. Cancelling that order will not attempt a card refund.
+
 ### Catalog
 
-**Remove a product.** Each row on `/admin/stock` has a **Remove** button (`POST /admin/products/{id}/delete`). Deletion is a hard delete from the `products` table. It is **blocked** if that product appears on any past order (foreign key on `order_items`). In that case the studio sees: *This product has been ordered before. Set stock to 0 to hide it from the shop.* Setting stock to 0 still hides the item from the public catalog without deleting history.
+**Remove a product.** Each row on `/admin/stock` has a **Remove** button (`POST /admin/products/{id}/delete`) and asks for confirm. Deletion is a hard delete from the `products` table. It is **blocked** if that product appears on any past order (foreign key on `order_items`). In that case the studio sees: *This product has been ordered before. Set stock to 0 to hide it from the shop.* Setting stock to 0 still hides the item from the public catalog without deleting history. Zero-stock rows are highlighted and sorted last; 1–2 remaining is marked low.
 
 Uploaded photos are served from `/media/products/...` and stored under `DATA_DIR/product-images`.
 
@@ -432,13 +445,14 @@ After checkout they get:
 1. A thank-you page with **View order details**
 2. A confirmation email with the same private link: `https://print-me-maybe.com/order/…`
 
-They refresh that page to see status changes you save in admin (In progress, Ready to ship, Shipped, Cancelled) and the tracking number when you add one. They do **not** get an email for every status change — only:
+They refresh that page to see status changes you save in admin (In progress, Ready to ship, Shipped, Cancelled) and the tracking number when you add one. They get email for:
 
 - the original confirmation
-- a **shipped** email (when you mark Shipped, or later add/change tracking on a shipped order)
-- a **cancelled** email (when you cancel)
+- **Ready** (once, when you first mark Ready to ship)
+- **Shipped** / collect-at-studio (pickup when you mark Shipped; delivery only when a tracking number is saved)
+- **Cancelled** (when you cancel; refund wording only if Stripe actually refunded on that save)
 
-If they lose the email, they would need to message the studio (Instagram or reply to the order mail). Admin does not currently show a “copy customer link” button.
+If they lose the email, copy the customer link or resend confirmation from the order page.
 
 ## Payments and refunds
 
@@ -449,7 +463,8 @@ Card checkout uses Stripe Checkout (EUR). Production webhook: `https://print-me-
 | What you do | Customer | Stripe fee |
 |-------------|----------|------------|
 | Paid order | Charged the full total | You pay the processing fee |
-| Cancel in admin (paid) | Full amount refunded to the original card | **Original fee is not returned** |
+| Cancel in admin (card paid) | Full amount refunded to the original card | **Original fee is not returned** |
+| Cancel cash/bank paid | Refund in person | Nothing |
 | Cancel unpaid / no card | Nothing charged | Nothing |
 
 There is no extra Stripe fee for issuing a **card** refund on standard Cyprus pricing. Bank-transfer refunds can have extra fees; this shop takes cards through Checkout.
@@ -462,12 +477,15 @@ Dashboard: [dashboard.stripe.com](https://dashboard.stripe.com) → the payment 
 
 | Event | Studio inbox (`NOTIFY_EMAIL`) | Customer |
 |-------|-------------------------------|----------|
-| New paid or unpaid order | Yes (order details) | Yes (confirmation + private order link) |
-| Marked **Shipped** (or tracking added later on a shipped order) | No | Yes (tracking number if you saved one) |
-| **Cancelled** | Yes | Yes (refund notice when a card payment was returned) |
+| New paid or unpaid order | Yes (order details, phone, customer notes) | Yes (confirmation + private order link) |
+| Marked **Ready** (first time only) | No | Yes (pickup: collect; delivery: packed) |
+| Marked **Shipped** (pickup) | No | Yes (collect at studio) |
+| Marked **Shipped** (delivery) or tracking added later | No | Yes, **only if a tracking number is saved** |
+| **Cancelled** | Yes | Yes (refund notice only when a card payment was returned on that save) |
 | Paid Stripe session could not create an order | Yes | No (refund is attempted; studio must follow up) |
 | Blocked login / checkout flood | Yes (at most once per hour per type) | No |
 | **Send test email** in admin | Yes | No |
+| **Resend confirmation** / **Resend shipped** | Yes (confirmation also hits studio) | Yes |
 
 Checkout still succeeds if mail fails. New checkouts and attack alerts go to **dimitrioupanagiotis@outlook.com**.
 

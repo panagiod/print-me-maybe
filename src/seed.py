@@ -164,22 +164,16 @@ CATALOG = [
 
 
 def seed_products() -> None:
-    """Insert missing catalog SKUs and refresh their name, price, copy, and image.
+    """Insert missing catalog SKUs. Existing rows (including admin edits) are left as-is.
 
-    Stock on existing rows is left as-is so admin inventory changes survive a deploy.
-    Products added from the studio admin (slugs not in CATALOG) are left untouched.
+    Stock and products added from studio admin are never overwritten by seed.
     """
     with get_connection() as conn:
         conn.executemany(
             """
             INSERT INTO products (slug, name, description, price_cents, image_url, category, stock)
             VALUES (:slug, :name, :description, :price_cents, :image_url, :category, :stock)
-            ON CONFLICT(slug) DO UPDATE SET
-                name = excluded.name,
-                description = excluded.description,
-                price_cents = excluded.price_cents,
-                image_url = excluded.image_url,
-                category = excluded.category
+            ON CONFLICT(slug) DO NOTHING
             """,
             CATALOG,
         )

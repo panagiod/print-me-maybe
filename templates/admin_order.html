@@ -5,23 +5,68 @@
 {% block content %}
 <p class="breadcrumb"><a href="/admin/orders">Orders</a> / #{{ order.id }}</p>
 <h1 class="page-title">Order #{{ order.id }}</h1>
-<p class="order-meta">Placed {{ order.created_at }} · <span class="status-pill status-{{ order.status }}">{{ order.status_label }}</span> · <span class="status-pill status-{{ order.payment_status }}">{{ order.payment_label }}</span></p>
+<p class="order-meta">Placed {{ order.created_at_display }} · <span class="status-pill status-{{ order.status }}">{{ order.status_label }}</span> · <span class="status-pill status-{{ order.payment_status }}">{{ order.payment_label }}{% if order.payment_method == "cash" %} (cash/bank){% endif %}</span></p>
 
 {% if error %}
 <div class="alert alert-error" role="alert">{{ error }}</div>
 {% endif %}
+{% if mail_status %}
+<div class="alert {% if mail_kind == 'ok' %}alert-ok{% else %}alert-error{% endif %}" role="status">{{ mail_status }}</div>
+{% endif %}
+
+<div class="admin-order-actions no-print">
+  {% if customer_order_url %}
+  <button type="button" class="btn btn-ghost" data-copy="{{ customer_order_url }}">Copy customer link</button>
+  {% endif %}
+  <a href="/admin/orders/{{ order.id }}/print" class="btn btn-ghost">Print packing slip</a>
+  <form action="/admin/orders/{{ order.id }}/resend" method="post">
+    <button type="submit" class="btn btn-ghost">Resend confirmation</button>
+  </form>
+  {% if order.status == "shipped" %}
+  <form action="/admin/orders/{{ order.id }}/resend-shipped" method="post">
+    <button type="submit" class="btn btn-ghost">Resend shipped email</button>
+  </form>
+  {% endif %}
+  {% if order.payment_status == "unpaid" %}
+  <form action="/admin/orders/{{ order.id }}/mark-paid" method="post">
+    <button type="submit" class="btn btn-ghost">Mark as paid (cash/bank)</button>
+  </form>
+  {% endif %}
+</div>
 
 <div class="checkout-layout">
   <section class="order-details">
     <h2>Customer</h2>
     <p class="order-shipping-name">{{ order.customer_name }}</p>
     <p class="order-shipping-email"><a href="mailto:{{ order.customer_email }}">{{ order.customer_email }}</a></p>
+    {% if order.customer_phone %}
+    <p class="order-shipping-phone"><a href="tel:{{ order.customer_phone }}">{{ order.customer_phone }}</a></p>
+    {% endif %}
     {% if order.shipping_label %}
     <p class="order-shipping-method">{{ order.shipping_label }}</p>
     {% endif %}
     <p class="order-shipping-address">{{ order.shipping_address }}</p>
+    {% if customer_order_url %}
+    <p class="order-customer-link muted">Customer page: <a href="{{ customer_order_url }}">{{ customer_order_url }}</a></p>
+    {% endif %}
+    {% if stripe_session_id %}
+    <p class="order-stripe muted">Stripe session: <a href="https://dashboard.stripe.com/search?query={{ stripe_session_id }}" target="_blank" rel="noopener noreferrer">{{ stripe_session_id }}</a></p>
+    {% endif %}
 
-    <form action="/admin/orders/{{ order.id }}" method="post" class="checkout-form">
+    {% if order.customer_notes %}
+    <h2>Customer notes</h2>
+    <p class="order-customer-notes">{{ order.customer_notes }}</p>
+    {% endif %}
+
+    <form
+      action="/admin/orders/{{ order.id }}"
+      method="post"
+      class="checkout-form"
+      data-current-status="{{ order.status }}"
+      data-paid="{% if order.paid %}1{% endif %}"
+      data-card-paid="{% if order.card_paid %}1{% endif %}"
+      data-refund-amount="{{ order.total_display }}"
+    >
       <label>
         Status
         <select name="status">
@@ -35,11 +80,11 @@
         <input type="text" name="tracking_number" value="{{ order.tracking_number }}" maxlength="120" autocomplete="off">
       </label>
       <label>
-        Studio notes (custom names, files, Instagram)
+        Studio notes (internal)
         <textarea name="notes" rows="4">{{ order.notes }}</textarea>
       </label>
       <button type="submit" class="btn btn-primary">Save order</button>
-      <p class="checkout-note">Paste the courier tracking number when you mark the order shipped. The customer sees it on their order page and gets an email. Cancelling a paid order refunds the card through Stripe and emails the customer. Items go back in stock. Reopening deducts stock again; it does not charge the card again.</p>
+      <p class="checkout-note">Paste the courier tracking number when you mark a delivery shipped — the customer is emailed only once a number is saved. Pickup customers get a collect-at-studio email. Cancelling a card-paid order refunds through Stripe. Cash/bank paid orders are not refunded in Stripe. Items go back in stock. Refunded orders cannot be reopened.</p>
     </form>
   </section>
 

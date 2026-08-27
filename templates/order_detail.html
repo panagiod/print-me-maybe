@@ -4,7 +4,7 @@
 
 {% block content %}
 <h1 class="page-title">Order #{{ order.id }}</h1>
-<p class="order-meta">Placed {{ order.created_at }} · {{ order.status_label }} · {{ order.payment_label }}</p>
+<p class="order-meta">Placed {{ order.created_at_display }} · {{ order.status_label }} · {{ order.payment_label }}</p>
 {% if order.status == "cancelled" %}
 <p class="checkout-note">This order was cancelled.{% if order.payment_status == "refunded" %} The card payment was refunded.{% endif %}</p>
 {% endif %}
@@ -14,10 +14,17 @@
     <h2>Shipping</h2>
     <p class="order-shipping-name">{{ order.customer_name }}</p>
     <p class="order-shipping-email">{{ order.customer_email }}</p>
+    {% if order.customer_phone %}
+    <p class="order-shipping-phone">{{ order.customer_phone }}</p>
+    {% endif %}
     {% if order.shipping_label %}
     <p class="order-shipping-method">{{ order.shipping_label }}</p>
     {% endif %}
     <p class="order-shipping-address">{{ order.shipping_address }}</p>
+    {% if order.customer_notes %}
+    <h2>Your notes</h2>
+    <p class="order-customer-notes">{{ order.customer_notes }}</p>
+    {% endif %}
     {% if order.tracking_number %}
     <p class="order-tracking">Tracking:
       {% if order.tracking_number.lower().startswith("http://") or order.tracking_number.lower().startswith("https://") %}

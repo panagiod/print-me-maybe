@@ -18,6 +18,12 @@
     <h1 class="product-detail-title">{{ product.name }}</h1>
     <p class="product-detail-price">{{ product.price_display }}</p>
     <p class="product-detail-desc">{{ product.description }}</p>
+    {% if product.stock <= 0 %}
+    {% if sold_out_error %}
+    <div class="alert alert-error" role="alert">This item is sold out and cannot be added to the cart.</div>
+    {% endif %}
+    <p class="stock-note stock-sold-out">Sold out</p>
+    {% else %}
     <p class="stock-note">{{ product.stock }} in stock</p>
 
     <form action="/cart/add" method="post" class="add-form detail-add-form">
@@ -28,6 +34,7 @@
       </div>
       <button type="submit" class="btn btn-primary btn-lg">Add to cart</button>
     </form>
+    {% endif %}
   </div>
 </article>
 {% endblock %}

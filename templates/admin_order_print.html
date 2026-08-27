@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+
+{% block title %}Packing slip #{{ order.id }} — {{ shop_name }}{% endblock %}
+
+{% block content %}
+<div class="print-slip">
+  <p class="no-print breadcrumb"><a href="/admin/orders/{{ order.id }}">Back to order</a></p>
+  <p class="no-print">
+    <button type="button" class="btn btn-primary" data-print>Print</button>
+  </p>
+  <h1 class="page-title">{{ shop_name }}</h1>
+  <p class="order-meta">Packing slip · Order #{{ order.id }} · {{ order.created_at_display }}</p>
+  <p>
+    <span class="status-pill status-{{ order.status }}">{{ order.status_label }}</span>
+    <span class="status-pill status-{{ order.payment_status }}">{{ order.payment_label }}{% if order.payment_method == "cash" %} (cash/bank){% endif %}</span>
+  </p>
+
+  <section class="order-details">
+    <h2>Ship to</h2>
+    <p class="order-shipping-name">{{ order.customer_name }}</p>
+    <p class="order-shipping-email">{{ order.customer_email }}</p>
+    {% if order.customer_phone %}
+    <p class="order-shipping-phone">{{ order.customer_phone }}</p>
+    {% endif %}
+    {% if order.shipping_label %}
+    <p class="order-shipping-method">{{ order.shipping_label }}</p>
+    {% endif %}
+    <p class="order-shipping-address">{{ order.shipping_address }}</p>
+    {% if order.tracking_number %}
+    <p class="order-tracking">Tracking: {{ order.tracking_number }}</p>
+    {% endif %}
+    {% if order.customer_notes %}
+    <h2>Customer notes</h2>
+    <p class="order-customer-notes">{{ order.customer_notes }}</p>
+    {% endif %}
+  </section>
+
+  <h2>Items</h2>
+  <ul class="summary-list">
+    {% for item in order.items %}
+    <li>
+      <span>{{ item.product_name }} × {{ item.quantity }}</span>
+      <span>{{ item.line_total_display }}</span>
+    </li>
+    {% endfor %}
+  </ul>
+  <dl class="totals-breakdown">
+    <div class="totals-row">
+      <dt>Subtotal</dt>
+      <dd>{{ format_money(order.subtotal_cents) }}</dd>
+    </div>
+    <div class="totals-row">
+      <dt>Shipping</dt>
+      <dd>{{ format_money(order.shipping_cents) if order.shipping_cents else "Free" }}</dd>
+    </div>
+    <div class="totals-row totals-row-total">
+      <dt>Total</dt>
+      <dd><strong>{{ order.total_display }}</strong></dd>
+    </div>
+  </dl>
+</div>
+{% endblock %}

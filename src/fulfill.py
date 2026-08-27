@@ -46,6 +46,8 @@ def complete_paid_session(session: dict) -> Order:
         country = str(pending.get("delivery_country") or "").strip().lower()
         shipping = int(pending.get("shipping_cents") or 0)
         expected = int(pending.get("total_cents") or 0)
+        notes = str(pending.get("customer_notes") or "").strip()
+        phone = str(pending.get("customer_phone") or "").strip()
     else:
         lines = lines_from_cart_json(str(meta.get("cart") or ""))
         name = str(meta.get("customer_name") or "").strip() or "Customer"
@@ -55,6 +57,8 @@ def complete_paid_session(session: dict) -> Order:
         country = str(meta.get("delivery_country") or "").strip().lower()
         shipping = int(meta.get("shipping_cents") or 0)
         expected = int(meta.get("total_cents") or 0)
+        notes = str(meta.get("customer_notes") or "").strip()
+        phone = str(meta.get("customer_phone") or "").strip()
 
     if method not in SHIPPING_METHODS:
         method = "pickup"
@@ -80,6 +84,9 @@ def complete_paid_session(session: dict) -> Order:
             delivery_country=country,
             paid=True,
             stripe_session_id=session_id,
+            customer_notes=notes,
+            customer_phone=phone,
+            payment_method="card",
         )
     except ValueError as exc:
         _fail_paid(session, email, str(exc))

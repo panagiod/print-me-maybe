@@ -123,6 +123,35 @@ def init_schema() -> None:
             conn.execute("ALTER TABLE orders ADD COLUMN delivery_country TEXT NOT NULL DEFAULT ''")
         if "tracking_number" not in columns:
             conn.execute("ALTER TABLE orders ADD COLUMN tracking_number TEXT NOT NULL DEFAULT ''")
+        if "customer_notes" not in columns:
+            conn.execute("ALTER TABLE orders ADD COLUMN customer_notes TEXT NOT NULL DEFAULT ''")
+        if "customer_phone" not in columns:
+            conn.execute("ALTER TABLE orders ADD COLUMN customer_phone TEXT NOT NULL DEFAULT ''")
+        if "payment_method" not in columns:
+            conn.execute("ALTER TABLE orders ADD COLUMN payment_method TEXT NOT NULL DEFAULT ''")
+        item_columns = {row[1] for row in conn.execute("PRAGMA table_info(order_items)").fetchall()}
+        if "product_name" not in item_columns:
+            conn.execute("ALTER TABLE order_items ADD COLUMN product_name TEXT NOT NULL DEFAULT ''")
+            conn.execute(
+                """
+                UPDATE order_items SET product_name = (
+                    SELECT name FROM products WHERE products.id = order_items.product_id
+                )
+                WHERE product_name = '' OR product_name IS NULL
+                """
+            )
+        pending_columns = {
+            row[1] for row in conn.execute("PRAGMA table_info(pending_checkouts)").fetchall()
+        }
+        if pending_columns:
+            if "customer_notes" not in pending_columns:
+                conn.execute(
+                    "ALTER TABLE pending_checkouts ADD COLUMN customer_notes TEXT NOT NULL DEFAULT ''"
+                )
+            if "customer_phone" not in pending_columns:
+                conn.execute(
+                    "ALTER TABLE pending_checkouts ADD COLUMN customer_phone TEXT NOT NULL DEFAULT ''"
+                )
         missing = conn.execute(
             "SELECT id FROM orders WHERE lookup_token IS NULL OR lookup_token = ''"
         ).fetchall()

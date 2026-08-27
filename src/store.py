@@ -147,9 +147,11 @@ def get_order_by_token(token: str) -> Order | None:
 
 
 def list_all_products() -> list[Product]:
-    """Admin catalog including sold-out items."""
+    """Admin catalog including sold-out items. Zero stock last."""
     with get_connection() as conn:
-        rows = conn.execute("SELECT * FROM products ORDER BY category, name").fetchall()
+        rows = conn.execute(
+            "SELECT * FROM products ORDER BY CASE WHEN stock <= 0 THEN 1 ELSE 0 END, category, name"
+        ).fetchall()
     return [Product.from_row(row) for row in rows]
 
 
@@ -262,18 +264,62 @@ def update_product(
     return Product.from_row(row)
 
 
-def list_orders(status: str | None = None) -> list[Order]:
+def list_orders(
+    status: str | None = None,
+    *,
+    shipping: str | None = None,
+    q: str | None = None,
+) -> list[Order]:
     """Newest-first order list for the studio admin."""
     query = "SELECT * FROM orders"
-    params: tuple[object, ...] = ()
+    clauses: list[str] = []
+    params: list[object] = []
     if status:
-        query += " WHERE status = ?"
-        params = (status,)
+        clauses.append("status = ?")
+        params.append(status)
+    if shipping == "pickup":
+        clauses.append("shipping_method = 'pickup'")
+    elif shipping == "cyprus":
+        clauses.append("shipping_method = 'delivery' AND delivery_country = 'cyprus'")
+    elif shipping == "other":
+        clauses.append("shipping_method = 'delivery' AND delivery_country = 'other'")
+    needle = (q or "").strip()
+    if needle:
+        if needle.isdigit():
+            clauses.append(
+                "(id = ? OR customer_name LIKE ? OR customer_email LIKE ? OR tracking_number LIKE ?)"
+            )
+            like = f"%{needle}%"
+            params.extend([int(needle), like, like, like])
+        else:
+            clauses.append(
+                "(customer_name LIKE ? OR customer_email LIKE ? OR tracking_number LIKE ?)"
+            )
+            like = f"%{needle}%"
+            params.extend([like, like, like])
+    if clauses:
+        query += " WHERE " + " AND ".join(clauses)
     query += " ORDER BY id DESC"
 
     with get_connection() as conn:
-        rows = conn.execute(query, params).fetchall()
+        rows = conn.execute(query, tuple(params)).fetchall()
         return [_order_from_row(conn, row) for row in rows]
+
+
+def order_shipping_counts() -> dict[str, int]:
+    """Counts for pickup vs Cyprus vs international filter chips."""
+    with get_connection() as conn:
+        pickup = conn.execute(
+            "SELECT COUNT(*) FROM orders WHERE shipping_method = 'pickup'"
+        ).fetchone()[0]
+        cyprus = conn.execute(
+            "SELECT COUNT(*) FROM orders WHERE shipping_method = 'delivery' AND delivery_country = 'cyprus'"
+        ).fetchone()[0]
+        other = conn.execute(
+            "SELECT COUNT(*) FROM orders WHERE shipping_method = 'delivery' AND delivery_country = 'other'"
+        ).fetchone()[0]
+        total = conn.execute("SELECT COUNT(*) FROM orders").fetchone()[0]
+    return {"all": int(total), "pickup": int(pickup), "cyprus": int(cyprus), "other": int(other)}
 
 
 def order_status_counts() -> dict[str, int]:
@@ -292,7 +338,10 @@ def update_order_status(order_id: int, status: str) -> None:
     """Set status and restock when cancelling (or deduct again when reopening)."""
     with get_connection() as conn:
         conn.execute("BEGIN IMMEDIATE")
-        row = conn.execute("SELECT status FROM orders WHERE id = ?", (order_id,)).fetchone()
+        row = conn.execute(
+            "SELECT status, payment_status FROM orders WHERE id = ?",
+            (order_id,),
+        ).fetchone()
         if not row:
             raise ValueError("Order not found")
 
@@ -312,6 +361,11 @@ def update_order_status(order_id: int, status: str) -> None:
                     (item["quantity"], item["product_id"]),
                 )
         elif current == "cancelled" and status != "cancelled":
+            if row["payment_status"] == "refunded":
+                raise ValueError(
+                    "This order was refunded, so it cannot be reopened. "
+                    "If they pay again, place a new order."
+                )
             for item in items:
                 product = conn.execute(
                     "SELECT name, stock FROM products WHERE id = ?",
@@ -334,13 +388,14 @@ def update_order_notes(order_id: int, notes: str) -> None:
         conn.execute("UPDATE orders SET notes = ? WHERE id = ?", (notes, order_id))
 
 
-def update_order_tracking(order_id: int, tracking_number: str) -> None:
+def update_order_tracking(order_id: int, tracking_number: str) -> str:
     cleaned = " ".join((tracking_number or "").split())[:120]
     with get_connection() as conn:
         conn.execute(
             "UPDATE orders SET tracking_number = ? WHERE id = ?",
             (cleaned, order_id),
         )
+    return cleaned
 
 
 def set_payment_status(order_id: int, payment_status: str) -> None:
@@ -353,12 +408,30 @@ def set_payment_status(order_id: int, payment_status: str) -> None:
         )
 
 
+def mark_order_paid_cash(order_id: int) -> None:
+    """Record a cash/bank payment. Does not call Stripe."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT payment_status FROM orders WHERE id = ?",
+            (order_id,),
+        ).fetchone()
+        if not row:
+            raise ValueError("Order not found")
+        if row["payment_status"] != "unpaid":
+            raise ValueError("Only unpaid orders can be marked paid in cash")
+        conn.execute(
+            "UPDATE orders SET payment_status = 'paid', payment_method = 'cash' WHERE id = ?",
+            (order_id,),
+        )
+
+
 def _order_from_row(conn, row) -> Order:
     item_rows = conn.execute(
         """
-        SELECT oi.quantity, oi.unit_price_cents, p.name AS product_name
+        SELECT oi.quantity, oi.unit_price_cents,
+               COALESCE(NULLIF(oi.product_name, ''), p.name, 'Item') AS product_name
         FROM order_items oi
-        JOIN products p ON p.id = oi.product_id
+        LEFT JOIN products p ON p.id = oi.product_id
         WHERE oi.order_id = ?
         ORDER BY oi.id
         """,
@@ -394,6 +467,9 @@ def _order_from_row(conn, row) -> Order:
         tracking_number=row["tracking_number"]
         if "tracking_number" in keys and row["tracking_number"]
         else "",
+        customer_notes=row["customer_notes"] if "customer_notes" in keys and row["customer_notes"] else "",
+        customer_phone=row["customer_phone"] if "customer_phone" in keys and row["customer_phone"] else "",
+        payment_method=row["payment_method"] if "payment_method" in keys and row["payment_method"] else "",
     )
 
 
@@ -470,6 +546,8 @@ def save_pending_checkout(
     delivery_country: str,
     shipping_cents: int,
     total_cents: int,
+    customer_notes: str = "",
+    customer_phone: str = "",
 ) -> None:
     cleaned = (session_id or "").strip()
     if not cleaned:
@@ -479,9 +557,10 @@ def save_pending_checkout(
             """
             INSERT OR REPLACE INTO pending_checkouts (
                 session_id, cart_json, customer_name, customer_email, shipping_address,
-                shipping_method, delivery_country, shipping_cents, total_cents
+                shipping_method, delivery_country, shipping_cents, total_cents,
+                customer_notes, customer_phone
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 cleaned,
@@ -493,6 +572,8 @@ def save_pending_checkout(
                 delivery_country or "",
                 max(0, shipping_cents),
                 total_cents,
+                (customer_notes or "").strip()[:1000],
+                (customer_phone or "").strip()[:40],
             ),
         )
 
@@ -522,6 +603,9 @@ def place_order(
     delivery_country: str = "",
     paid: bool = False,
     stripe_session_id: str | None = None,
+    customer_notes: str = "",
+    customer_phone: str = "",
+    payment_method: str = "",
 ) -> int:
     """Persist an order and decrement stock atomically.
 
@@ -536,6 +620,9 @@ def place_order(
     method = (shipping_method or "").strip()
     country = (delivery_country or "").strip()
     session_id = (stripe_session_id or "").strip()
+    notes = (customer_notes or "").strip()[:1000]
+    phone = (customer_phone or "").strip()[:40]
+    pay_method = (payment_method or ("card" if paid else "")).strip()[:20]
 
     with get_connection() as conn:
         conn.execute("BEGIN IMMEDIATE")
@@ -560,9 +647,10 @@ def place_order(
             """
             INSERT INTO orders (
                 customer_name, customer_email, shipping_address, total_cents,
-                status, lookup_token, payment_status, shipping_method, delivery_country
+                status, lookup_token, payment_status, shipping_method, delivery_country,
+                customer_notes, customer_phone, payment_method
             )
-            VALUES (?, ?, ?, ?, 'new', ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, 'new', ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 customer_name,
@@ -573,6 +661,9 @@ def place_order(
                 payment_status,
                 method,
                 country,
+                notes,
+                phone,
+                pay_method,
             ),
         )
         order_id = int(cursor.lastrowid)
@@ -580,10 +671,16 @@ def place_order(
         for line in lines:
             conn.execute(
                 """
-                INSERT INTO order_items (order_id, product_id, quantity, unit_price_cents)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO order_items (order_id, product_id, quantity, unit_price_cents, product_name)
+                VALUES (?, ?, ?, ?, ?)
                 """,
-                (order_id, line.product.id, line.quantity, line.product.price_cents),
+                (
+                    order_id,
+                    line.product.id,
+                    line.quantity,
+                    line.product.price_cents,
+                    line.product.name,
+                ),
             )
             conn.execute(
                 "UPDATE products SET stock = stock - ? WHERE id = ?",

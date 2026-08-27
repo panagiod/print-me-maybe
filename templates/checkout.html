@@ -29,6 +29,11 @@
         Email
         <input type="email" name="customer_email" required autocomplete="email" value="{{ form_customer_email or '' }}">
       </label>
+      <label>
+        Phone
+        <input type="tel" name="customer_phone" id="customer-phone" autocomplete="tel" value="{{ form_customer_phone or '' }}">
+      </label>
+      <p class="field-hint">Required for delivery so the courier can reach you. Optional for pick up.</p>
     </fieldset>
 
     <fieldset>
@@ -66,11 +71,20 @@
       </label>
     </fieldset>
 
+    <fieldset>
+      <legend>Order notes</legend>
+      <label>
+        Colour, name, files, Instagram
+        <textarea name="customer_notes" rows="3" maxlength="1000" placeholder="e.g. navy, name Eleni">{{ form_customer_notes or '' }}</textarea>
+      </label>
+      <p class="field-hint">Optional. The studio sees this with your order. You can still DM @print.me.maybe or @lasercraft.27 for photos or files.</p>
+    </fieldset>
+
     <p class="checkout-note">
       {% if payments_on %}
-      You will pay by card on Stripe’s page (EEA cards typically 1.5% + €0.25, paid by the shop). Custom names, photos, or files: DM @print.me.maybe or @lasercraft.27.
+      You will pay by card on Stripe’s page (EEA cards typically 1.5% + €0.25, paid by the shop).
       {% else %}
-      Card payments are off until STRIPE_SECRET_KEY is set on the server. For custom names, photos, or files, DM @print.me.maybe or @lasercraft.27.
+      Card payments are off until STRIPE_SECRET_KEY is set on the server.
       {% endif %}
     </p>
     <button type="submit" class="btn btn-primary btn-lg">{% if payments_on %}Pay with card{% else %}Place order{% endif %}</button>

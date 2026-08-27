@@ -20,7 +20,9 @@ from src.notify import (
     notify_new_order,
     notify_order_cancelled,
     notify_order_shipped,
+    ready_email_body,
     shipped_email_body,
+    should_email_shipped,
 )
 from src.seed import seed_products
 
@@ -108,6 +110,40 @@ def test_build_order_email_includes_customer_and_totals() -> None:
     assert "No payment was collected" in body
 
 
+def test_studio_email_includes_phone_and_notes() -> None:
+    order = _sample_order()
+    order = Order(
+        id=order.id,
+        customer_name=order.customer_name,
+        customer_email=order.customer_email,
+        shipping_address=order.shipping_address,
+        total_cents=order.total_cents,
+        created_at=order.created_at,
+        items=order.items,
+        status=order.status,
+        lookup_token=order.lookup_token,
+        customer_notes="navy, name Eleni",
+        customer_phone="+357 99 123456",
+    )
+    body = build_order_email(order).get_content()
+    assert "+357 99 123456" in body
+    assert "navy, name Eleni" in body
+    ready = ready_email_body(
+        Order(
+            id=12,
+            customer_name="Ada Lovelace",
+            customer_email="ada@example.com",
+            shipping_address="Pick up at studio",
+            total_cents=400,
+            created_at="2026-08-26",
+            items=order.items,
+            lookup_token="customer-order-token-12",
+            shipping_method="pickup",
+        )
+    )
+    assert "ready to collect at the studio" in ready
+
+
 def test_cancellation_email_mentions_refund() -> None:
     order = _sample_order()
     refunded = cancellation_email_body(order, refunded=True)
@@ -171,8 +207,40 @@ def test_shipped_email_includes_tracking() -> None:
     assert "has shipped" in body
     assert "CY123456789CY" in body
     assert "customer-order-token-12" in body
-    empty = shipped_email_body(_sample_order())
-    assert "was not added yet" in empty
+    pickup = Order(
+        id=12,
+        customer_name="Ada Lovelace",
+        customer_email="ada@example.com",
+        shipping_address="Pick up at studio",
+        total_cents=400,
+        created_at="2026-08-26",
+        items=[
+            OrderItem(product_name="Floral Glasses Case", quantity=1, unit_price_cents=400),
+        ],
+        status="shipped",
+        lookup_token="customer-order-token-12",
+        shipping_method="pickup",
+    )
+    collect = shipped_email_body(pickup)
+    assert "ready to collect at the studio" in collect
+    assert "has shipped" not in collect
+    assert should_email_shipped(pickup) is True
+    delivery_no_track = Order(
+        id=12,
+        customer_name="Ada Lovelace",
+        customer_email="ada@example.com",
+        shipping_address="12 Engine St",
+        total_cents=750,
+        created_at="2026-08-26",
+        items=[
+            OrderItem(product_name="Floral Glasses Case", quantity=1, unit_price_cents=400),
+        ],
+        status="shipped",
+        lookup_token="customer-order-token-12",
+        shipping_method="delivery",
+        delivery_country="cyprus",
+    )
+    assert should_email_shipped(delivery_no_track) is False
 
 
 def test_notify_order_shipped_emails_customer(monkeypatch) -> None:
@@ -302,6 +370,7 @@ def test_checkout_emails_studio(monkeypatch) -> None:
             "shipping_method": "delivery",
             "delivery_country": "cyprus",
             "shipping_address": "12 Engine St",
+            "customer_phone": "+357 99 123456",
         },
     )
     assert checkout.status_code == 200
