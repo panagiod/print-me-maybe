@@ -1,0 +1,17 @@
+{
+  "name": "Print Me Maybe",
+  "install": "sudo apt-get update && sudo apt-get install -y --no-install-recommends libpango-1.0-0 libpangocairo-1.0-0 libcairo2 libgdk-pixbuf-2.0-0 libffi-dev shared-mime-info fonts-dejavu-core && pip install -r requirements.txt -r requirements-dev.txt",
+  "terminals": [
+    {
+      "name": "web",
+      "command": "python3 -m uvicorn src.main:app --host 127.0.0.1 --port 8080 --reload",
+      "description": "FastAPI storefront (Uvicorn). Home at http://127.0.0.1:8080, studio at /studio/login (password: printmemaybe)."
+    }
+  ],
+  "ports": [
+    {
+      "name": "web",
+      "port": 8080
+    }
+  ]
+}
